@@ -1,0 +1,7 @@
+<map id="warpcore::HashSet::insert" name="warpcore::HashSet::insert">
+<area shape="rect" id="node1" title="inserts a key into the hash set" alt="" coords="5,39,157,80"/>
+<area shape="rect" id="node2" href="$classwarpcore_1_1HashSet.html#af07ed139aa043222f6f25058cf7c53e2" title="checks if key is equal to EmptyKey" alt="" coords="205,5,357,47"/>
+<area shape="rect" id="node4" href="$classwarpcore_1_1HashSet.html#aeec18cd128763576033aab044471ffa7" title="checks if key is equal to (EmptyKey||TombstoneKey)" alt="" coords="205,71,357,112"/>
+<area shape="rect" id="node3" href="$classwarpcore_1_1HashSet.html#ab28ac96cb8e02dd35b2ba73334175ab7" title="get empty key" alt="" coords="405,5,557,47"/>
+<area shape="rect" id="node5" href="$classwarpcore_1_1HashSet.html#a6e23aa0327da71ca30454d5a4815064e" title="get tombstone key" alt="" coords="405,71,557,112"/>
+</map>

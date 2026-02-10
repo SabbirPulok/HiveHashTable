@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/dynamic_test.dir/thirdParty/cnmem.cpp.o CMakeFiles/dynamic_test.dir/test/dynamic_test_generated_dynamic_test.cu.o -o dynamic_test  /usr/local/cuda-13.0/lib64/libcudart_static.a -ldl /usr/lib/x86_64-linux-gnu/librt.a

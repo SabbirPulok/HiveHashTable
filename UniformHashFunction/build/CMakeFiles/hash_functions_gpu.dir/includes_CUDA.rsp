@@ -1,0 +1,1 @@
+-I"/usr/local/cuda-12.6/include" -I"/home/sabbir/Documents/Research/gpu-dictionary/Hash_Function_GPU/include"

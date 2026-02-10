@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/sabbir/Documents/Sabbir/Research/hivehashtable_gpu/competitors/DyCuckoo/dynamicHash/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

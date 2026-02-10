@@ -1,0 +1,15 @@
+bin/
+*.o
+*.d
+*.bak
+
+.vscode/
+log.txt
+
+*.csv
+*.log
+*.zip
+
+results/
+
+scripts/__pycache__/

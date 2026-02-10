@@ -1,0 +1,88 @@
+Experiment Configuration (nBuckets, nKeys): {64,128}
+Random..
+RSS for crc64 : 0.285672
+RSS for crc32 : 8.91872
+RSS for hash1 : 0.523248
+RSS for hash2 : 6.1888
+RSS for murmurhash3 : 12.4208
+RSS for cityhash32 : 3.14279
+RSS for spinwheel_hash : 852.165
+RSS for spinwheel_hash8b : 4.74178
+RSS for identity_hash : 3.74773
+Sequential...
+RSS for crc64 : 1985
+RSS for crc32 : 2713.33
+RSS for hash1 : 1.69065
+RSS for hash2 : 6.31545
+RSS for murmurhash3 : 3.46855
+RSS for cityhash32 : 3.13261
+RSS for spinwheel_hash : 852.165
+RSS for spinwheel_hash8b : 88.4514
+RSS for identity_hash : 2713.33
+Result saved on CSV files...
+Experiment Configuration (nBuckets, nKeys): {128,256}
+Random..
+RSS for crc64 : 3.47663
+RSS for crc32 : 5.73918
+RSS for hash1 : 8.89554
+RSS for hash2 : 2.91956
+RSS for murmurhash3 : 14.0396
+RSS for cityhash32 : 7.39821
+RSS for spinwheel_hash : 3400.01
+RSS for spinwheel_hash8b : 4.79925
+RSS for identity_hash : 3.31353
+Sequential...
+RSS for crc64 : 7913.84
+RSS for crc32 : 10879.9
+RSS for hash1 : 8.88242
+RSS for hash2 : 8.01203
+RSS for murmurhash3 : 3.56942
+RSS for cityhash32 : 0.849788
+RSS for spinwheel_hash : 3400.01
+RSS for spinwheel_hash8b : 10879.9
+RSS for identity_hash : 10879.9
+Result saved on CSV files...
+Experiment Configuration (nBuckets, nKeys): {256,512}
+Random..
+RSS for crc64 : 10.8261
+RSS for crc32 : 10.2765
+RSS for hash1 : 2.88542
+RSS for hash2 : 2.42987
+RSS for murmurhash3 : 5.20422
+RSS for cityhash32 : 22.1801
+RSS for spinwheel_hash : 13583
+RSS for spinwheel_hash8b : 20.732
+RSS for identity_hash : 20.732
+Sequential...
+RSS for crc64 : 31603.5
+RSS for crc32 : 25449.8
+RSS for hash1 : 13.4186
+RSS for hash2 : 29.4115
+RSS for murmurhash3 : 11.9405
+RSS for cityhash32 : 6.46563
+RSS for spinwheel_hash : 13583
+RSS for spinwheel_hash8b : 43572.2
+RSS for identity_hash : 43572.2
+Result saved on CSV files...
+Experiment Configuration (nBuckets, nKeys): {1024,1024}
+Random..
+RSS for crc64 : 76.9784
+RSS for crc32 : 33.0251
+RSS for hash1 : 97.6666
+RSS for hash2 : 81.8737
+RSS for murmurhash3 : 7.55398
+RSS for cityhash32 : 44.5898
+RSS for spinwheel_hash : 323524
+RSS for spinwheel_hash8b : 64.837
+RSS for identity_hash : 51.2283
+Sequential...
+RSS for crc64 : 62016.2
+RSS for crc32 : 256766
+RSS for hash1 : 14.6172
+RSS for hash2 : 27.9251
+RSS for murmurhash3 : 240.689
+RSS for cityhash32 : 8.75194
+RSS for spinwheel_hash : 323524
+RSS for spinwheel_hash8b : 5847.79
+RSS for identity_hash : 600224
+Result saved on CSV files...

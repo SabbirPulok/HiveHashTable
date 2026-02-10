@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/static_test.dir/thirdParty/cnmem.cpp.o CMakeFiles/static_test.dir/test/static_test_generated_static_test.cu.o -o static_test  /usr/local/cuda-13.0/lib64/libcudart_static.a -ldl /usr/lib/x86_64-linux-gnu/librt.a
