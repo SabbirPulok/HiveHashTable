@@ -56,64 +56,6 @@ __device__ __forceinline__ bool scan_bucket_for_key(
     return true;
 }
 
-template<typename KeyType, typename ValueType>
-
-__device__ __forceinline__ bool scan_stash_for_key(
-    const HiveOverflowStash<KeyType, ValueType>* __restrict__ stash,
-    KeyType key,
-    ValueType* value_out,
-    cg::thread_block_tile<TILE_SIZE> tile
-)
-
-{
-
-    if (!stash->enabled || stash->isEmpty()) return false;
-
-
-
-    const uint32_t lane_id = tile.thread_rank();
-
-    const uint64_t head = stash->head.load(cuda::memory_order_acquire);
-
-    const uint64_t tail = stash->tail.load(cuda::memory_order_acquire);
-
-    const uint64_t size = tail - head;
-
-
-
-    for (uint64_t i = 0; i < size; i += TILE_SIZE)
-    {
-        uint64_t idx = i + lane_id;
-        bool match = false;
-        ValueType found_value = 0;
-
-        if (idx < size)
-        {
-            uint64_t stash_idx = (head + idx) % stash->capacity;
-
-            if (stash->keys[stash_idx] == key)
-            {
-                match = true;
-                found_value = stash->values[stash_idx];
-            }
-        }
-
-        unsigned match_mask = tile.ballot(match);
-
-        if (match_mask != 0)
-        {
-            int winner = __ffs(match_mask) - 1;
-            *value_out = tile.shfl(found_value, winner);
-            return true;
-        }
-    }
-
-    return false;
-
-}
-
-
-
 template<typename TableType, typename KeyType, typename ValueType, typename HashPolicy>
 __device__ __forceinline__  bool hive_lookup_one_coop(
     const TableType* __restrict__  table,
@@ -136,10 +78,6 @@ __device__ __forceinline__  bool hive_lookup_one_coop(
 
             return true;
     }
-
-    //Check Stash
-    if (scan_stash_for_key(stash, key, value_out, tile))
-        return true;
 
     return false;
 }
