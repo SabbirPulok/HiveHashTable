@@ -18,9 +18,9 @@
 // Default benchmark parameters
 size_t g_table_size = 22; 
 double g_load_factor = 0.9;    
-double g_insert_ratio = 1.0;   // Default to 50% insert
-double g_lookup_ratio = 0.0;   // Default to 30% lookup
-double g_delete_ratio = 0.0;   // Default to 20% delete
+double g_insert_ratio = 0.5;   // Default to 50% insert
+double g_lookup_ratio = 0.4;   // Default to 30% lookup
+double g_delete_ratio = 0.1;   // Default to 20% delete
 int g_num_iterations = 10;    // Default to 10 iterations
 int g_threads_per_block = 256; // Default to 256 threads per block
 std::string g_distribution = "uniform"; // Default distribution

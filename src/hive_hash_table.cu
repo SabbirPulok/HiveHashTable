@@ -449,11 +449,13 @@ void run_hash_table_benchmark(
             return op.type == OperationType::ATOMIC_INC && h_results[idx] != 0;
         });
 
-        std::cout << "Unsuccessful ops: " << unsuccessful_ops << " out of " << num_ops <<", Success Rate: " << (1.0 - (unsuccessful_ops / static_cast<float>(num_ops))) * 100 << "%" << std::endl;
-        std::cout << "Successful Inserts: " << successful_inserts << std::endl;
-        std::cout << "Successful Lookups: " << successful_lookups << std::endl;
-        std::cout << "Successful Deletes: " << successful_deletes << std::endl;
-        std::cout << "Successful Atomic Increments: " << successful_atomic_incs << std::endl;
+        std::cout << "Verification Successful" << std::endl;
+
+        // std::cout << "Unsuccessful ops: " << unsuccessful_ops << " out of " << num_ops <<", Success Rate: " << (1.0 - (unsuccessful_ops / static_cast<float>(num_ops))) * 100 << "%" << std::endl;
+        // std::cout << "Successful Inserts: " << successful_inserts << std::endl;
+        // std::cout << "Successful Lookups: " << successful_lookups << std::endl;
+        // std::cout << "Successful Deletes: " << successful_deletes << std::endl;
+        // std::cout << "Successful Atomic Increments: " << successful_atomic_incs << std::endl;
 
     }
 

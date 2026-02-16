@@ -67,6 +67,20 @@ __device__ __forceinline__ T load_cg_safe(const T* ptr)
     //__ldcg is supported for basic types and vector types like uint4 on modern archs
     return __ldcg(ptr);
 }
+
+__device__ __forceinline__ ulonglong2 load_two_kvs(ulonglong2* bucket, unsigned lane)
+{
+    ulonglong2 v;
+    
+    asm volatile (
+        "ld.global.v2.u64 {%0, %1}, [%2];\n"
+        : "=l"(v.x), "=l"(v.y)
+        : "l"(&bucket[lane])
+        : "memory"
+    );
+    return v;
+}
+
 #endif
 
 void vectorAdd(const float* A, const float* B, float* C, int N);

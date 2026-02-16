@@ -216,9 +216,73 @@ __device__ int claim_and_commit_slot(
     return tile.shfl(claimed, winner_lane);
 }
 
-//bounded eviction path : slow path
-//kicks (evicts) a victim from a full bucket, places the new kv in the vacated slot
-//then re-inserts the evicted kv into its alternate bucket, repeat up to max_evictions times
+template<typename TableType>
+__device__ __forceinline__ void lock_ordered(
+    TableType* table,
+    uint32_t bucket_a,  // Already held
+    uint32_t bucket_b
+)
+{
+    if(bucket_a == bucket_b) {
+        return;
+    }
+    
+    if(bucket_b < bucket_a) {
+        table->unlockBucket(bucket_a);
+        table->lockBucket(bucket_b);
+        table->lockBucket(bucket_a);
+    } else {
+        table->lockBucket(bucket_b);
+    }
+}
+
+template<typename TableType>
+__device__ __forceinline__ void unlock_ordered(
+    TableType* table,
+    uint32_t bucket_a,
+    uint32_t bucket_b
+)
+{
+    if(bucket_a == bucket_b)
+    {
+        table->unlockBucket(bucket_a);
+    }
+
+    uint32_t low = bucket_a < bucket_b ? bucket_a : bucket_b;
+    uint32_t high = bucket_a < bucket_b ? bucket_b : bucket_a;
+
+    table->unlockBucket(high);
+    table->unlockBucket(low);
+}
+
+template<typename TableType>
+__device__ __forceinline__ bool insert_under_lock(
+    TableType* table,
+    uint32_t bucket_idx,
+    uint64_t kv,
+    uint32_t valid_mask
+)
+{
+    auto atomic_free_mask = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(*table->getFreeMask(bucket_idx));
+    uint32_t free_mask = atomic_free_mask.load(cuda::memory_order_relaxed) & valid_mask;
+
+    if(free_mask != 0)
+    {
+        int free_slot = __ffs(free_mask) - 1;
+        uint32_t free_bit = 1u << free_slot;
+
+        auto* slot = table->loadKV(bucket_idx, free_slot);
+        using T = typename std::remove_reference<decltype(*slot)>::type;
+        auto atomic_kv = cuda::atomic_ref<T, cuda::thread_scope_device>(*slot);
+        atomic_kv.store(kv, cuda::memory_order_release);
+
+        atomic_free_mask.fetch_and(~free_bit, cuda::memory_order_release);
+
+        return true;
+    }
+    return false;
+}
+
 template<typename TableType, typename HashPolicy>
 __device__ bool cuckoo_evict_and_insert(
     cg::thread_block_tile<TILE_SIZE> tile,
@@ -236,83 +300,90 @@ __device__ bool cuckoo_evict_and_insert(
 
     for(size_t kick = 0; kick < table->max_evictions; ++kick)
     {
-        //If any thread freed a slot
-        if(claim_and_commit_slot (table, cur_bucket, cur_kv, active, tile) != -1)
+        if(claim_and_commit_slot(table, cur_bucket, cur_kv, active, tile) != -1)
         {
-            return true; //successfully inserted
+            return true; // Successfully inserted
         }
 
-        int outcome = -1;
+        bool done = false;
         uint64_t victim_kv = 0;
+        uint32_t alt_bucket = 0;
 
-        //Lock the bucket for eviction
-        //Picks a victim
         if(lane_id == 0)
         {
             table->lockBucket(cur_bucket);
-            //lock_bucket(table, cur_bucket);
 
-            //if anybody freed a slot while we were locking, just insert there
-            auto atomic_free_mask = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(*table->getFreeMask(cur_bucket));
+            auto atomic_free_mask = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(
+                *table->getFreeMask(cur_bucket));
             uint32_t free_mask = atomic_free_mask.load(cuda::memory_order_relaxed) & VALID;
+
             if(free_mask != 0)
             {
+                // Fast path: found free slot under lock
                 int free_slot = __ffs(free_mask) - 1;
-                uint32_t free_bit = 1u << free_slot; //bit corresponding to the free slot
+                uint32_t free_bit = 1u << free_slot;
 
-                //under the lock, update the slot without CAS
-                uint32_t old_free_mask = atomic_free_mask.load(cuda::memory_order_relaxed);
-                const uint32_t new_free_mask = old_free_mask & ~free_bit; //claim
-
-                atomic_free_mask.store(new_free_mask, cuda::memory_order_release);
-
-                //Publish KV
                 auto* slot = table->loadKV(cur_bucket, free_slot);
                 using T = typename std::remove_reference<decltype(*slot)>::type;
                 auto atomic_kv = cuda::atomic_ref<T, cuda::thread_scope_device>(*slot);
                 atomic_kv.store(cur_kv, cuda::memory_order_release);
 
+                atomic_free_mask.fetch_and(~free_bit, cuda::memory_order_release);
+                
                 table->unlockBucket(cur_bucket);
-                //unlock_bucket(table, cur_bucket);
-
-                //done placed without eviction
-                outcome = -2; //indicate no eviction
+                done = true;
             }
             else
             {
-                uint32_t occupied = ~atomic_free_mask.load(cuda::memory_order_relaxed) & VALID;
-                const int victim_slot = __ffs(occupied) - 1; //pick first occupied slot as victim
+                // Eviction path: no free slot
+                uint32_t occupied = ~free_mask & VALID;
+                int victim_slot = __ffs(occupied) - 1;
 
-                //Place my KV in the victim slot
                 auto* slot = table->loadKV(cur_bucket, victim_slot);
                 using T = typename std::remove_reference<decltype(*slot)>::type;
                 auto atomic_kv = cuda::atomic_ref<T, cuda::thread_scope_device>(*slot);
                 victim_kv = atomic_kv.load(cuda::memory_order_acquire);
-                atomic_kv.store(cur_kv, cuda::memory_order_release);
 
-                table->unlockBucket(cur_bucket);
-                //unlock_bucket(table, cur_bucket);
-                outcome = victim_slot; //indicate eviction
+                // Compute victim's alternate bucket
+                uint32_t victim_key = unpackKey(victim_kv);
+                alt_bucket = get_alternate_bucket<HashPolicy>(
+                    victim_key, cur_bucket, table->num_buckets);
+
+                lock_ordered(table, cur_bucket, alt_bucket);
+
+                if(alt_bucket != cur_bucket && 
+                   insert_under_lock(table, alt_bucket, victim_kv, VALID))
+                {
+                    // SUCCESS: Victim moved to alternate, insert new key
+                    atomic_kv.store(cur_kv, cuda::memory_order_release);
+                    done = true;
+                }
+                else
+                {
+                    // CHAIN: Alternate full, swap and continue
+                    atomic_kv.store(cur_kv, cuda::memory_order_release);
+                    done = false;
+                    // victim_kv will be tried in next iteration
+                }
+
+                // Unlock both buckets
+                unlock_ordered(table, cur_bucket, alt_bucket);
             }
         }
 
-        //broadcast outcome to tile
-        outcome = tile.shfl(outcome, 0);
-        victim_kv =  tile.shfl(victim_kv, 0);
+        // Broadcast results
+        done = tile.shfl(done, 0);
+        if (done) return true;
 
-        if(outcome == -2) return true; //placed without eviction
-        //if(outcome == -1), failed to lock bucket, retry
+        // Continue eviction chain
+        victim_kv = tile.shfl(victim_kv, 0);
+        alt_bucket = tile.shfl(alt_bucket, 0);
 
-        if(outcome >= 0)
-        {
-            //Successfully evicted a victim
-            cur_kv = victim_kv;
-            uint32_t cur_key = unpackKey(cur_kv);
-            cur_bucket = get_alternate_bucket<HashPolicy>(cur_key, cur_bucket, table->num_buckets);
-        }
+        cur_kv = victim_kv;
+        cur_bucket = alt_bucket;
     }
 
-    return false;
+    return false; // Failed after max_evictions
 }
 
 //Push on stash (overflow buffer)

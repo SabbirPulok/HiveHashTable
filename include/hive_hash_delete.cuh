@@ -31,7 +31,7 @@ __device__ __forceinline__ bool scan_bucket_and_delete(
 
     // Use native unsigned long long2 for vectorized load
     ulonglong2* bucket_vec = reinterpret_cast<ulonglong2*>(table->buckets[bucket_idx].kv);
-    ulonglong2 two_kvs = load_cg_safe(&bucket_vec[lane_id]);
+    ulonglong2 two_kvs = load_two_kvs(bucket_vec, lane_id);
 
     // Check both keys for a match
     matchA = (unpackKey(two_kvs.x) == key);

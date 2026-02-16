@@ -10,18 +10,7 @@
 
 #include <cooperative_groups.h>
 namespace cg = cooperative_groups;
-__device__ __forceinline__ ulonglong2 load_two_kvs(ulonglong2* bucket, unsigned lane)
-{
-    ulonglong2 v;
-    
-    asm volatile (
-        "ld.global.v2.u64 {%0, %1}, [%2];\n"
-        : "=l"(v.x), "=l"(v.y)
-        : "l"(&bucket[lane])
-        : "memory"
-    );
-    return v;
-}
+
 
 template<typename TableType>
 __device__ __forceinline__ bool scan_bucket_for_key(
