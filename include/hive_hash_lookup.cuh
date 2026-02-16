@@ -10,6 +10,18 @@
 
 #include <cooperative_groups.h>
 namespace cg = cooperative_groups;
+__device__ __forceinline__ ulonglong2 load_two_kvs(ulonglong2* bucket, unsigned lane)
+{
+    ulonglong2 v;
+    
+    asm volatile (
+        "ld.global.v2.u64 {%0, %1}, [%2];\n"
+        : "=l"(v.x), "=l"(v.y)
+        : "l"(&bucket[lane])
+        : "memory"
+    );
+    return v;
+}
 
 template<typename TableType>
 __device__ __forceinline__ bool scan_bucket_for_key(
@@ -25,12 +37,12 @@ __device__ __forceinline__ bool scan_bucket_for_key(
 
     bool match = false;
     ValueType found_value = 0;
-
-    //uint64_t kv = *(table->loadKV(bucket_idx, lane_id));
     
     //vectorized load using native ulonglong2 type
     ulonglong2* bucket_vec = reinterpret_cast<ulonglong2*>(table->buckets[bucket_idx].kv);
-    ulonglong2 two_kvs = load_cg_safe(&bucket_vec[lane_id]);
+    
+    //acquire load
+    ulonglong2 two_kvs = load_two_kvs(bucket_vec, lane_id);
 
     // With kv packed as (value << 32) | key :
     
