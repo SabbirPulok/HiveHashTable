@@ -334,8 +334,6 @@ void run_hash_table_benchmark(
         
         double lf = static_cast<double>(h_total_occupied) / (static_cast<double>(hash_table_host_mirror.num_buckets) * static_cast<double>(TableType::SLOTS));
 
-        std::cout << "Iteration " << iter << " Load Factor: " << lf * 100.0 << "%" << std::endl;
-
         #if DYNAMIC_RESIZE
         std::cout << "Dynamic Resizing Check: " << lf<< std::endl;
         if constexpr (std::is_same<TableType, HiveHashTable>::value)
@@ -1379,6 +1377,7 @@ void hive_launch_mix_ops_kernel(
 
     if (verify)
     {
+
         //Verify results
         unsuccessful_ops = std::count(h_results, h_results+num_ops, 0);
         successful_inserts = std::count_if(h_ops, h_ops + num_ops, [h_ops, h_results](const Operation& op) {
@@ -1394,11 +1393,7 @@ void hive_launch_mix_ops_kernel(
             return op.type == OperationType::DELETE && h_results[idx] != 0;
         });
 
-        std::cout << "Unsuccessful ops: " << unsuccessful_ops << " out of " << num_ops <<", Success Rate: " << (1.0 - (unsuccessful_ops / static_cast<float>(num_ops))) * 100 << "%" << std::endl;
-        std::cout << "Successful Inserts: " << successful_inserts << std::endl;
-        std::cout << "Successful Lookups: " << successful_lookups << std::endl;
-        std::cout << "Successful Deletes: " << successful_deletes << std::endl;
-
+        std::cout << "Verification Successful" << std::endl;
     }
 
     #if BREAKDOWN_INSERT
