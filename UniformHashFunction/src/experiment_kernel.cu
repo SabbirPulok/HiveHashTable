@@ -54,98 +54,60 @@ long double nChoosek(long double n, long double k)
 //optimize for large factorial
 long double ln_nChoosek(long double n, long double k)
 {
-    //n!/(n-k)!k!
-   return log(factorial(n)) - log(factorial(k)) - log(factorial(n-k));
+    // ln(n! / (k!(n-k)!)) = ln(gamma(n+1)) - ln(gamma(k+1)) - ln(gamma(n-k+1))
+   return lgamma(n+1.0L) - lgamma(k+1.0L) - lgamma(n-k+1.0L);
 }
 
 long double ExpectedNumberOfBucketsWithKelements_A(const long double B, const long double n, const long double k)
 {
-    double oneOverB { 1.0L/B };
-    double missProb { 1.0L - oneOverB};
+    long double oneOverB { 1.0L/B };
+    long double missProb { 1.0L - oneOverB};
 
     return exp(log(B) + ln_nChoosek(n,k) + k*log(oneOverB) + (n-k) * log(missProb));
 }
 
 long double ExpectedNumberOfBucketsWithKelements_B(const long double B, const long double n, const long double k)
 {
-    double oneOverB { 1.0L/B };
-    double missProb { 1.0L - oneOverB};
+    long double oneOverB { 1.0L/B };
+    long double missProb { 1.0L - oneOverB};
 
     return B* nChoosek(n,k)* std::pow(oneOverB, k)* std::pow(missProb, n-k);
 }
 
 long double TheoreticalProbability(const long double B, const long double n, const long double k)
 {
-    double oneOverB { 1.0L/B };
-    double missProb { 1.0L - oneOverB};
+    long double oneOverB { 1.0L/B };
+    long double missProb { 1.0L - oneOverB};
 
     return std::pow(oneOverB, k) * std::pow(missProb, n-k);
 }
 
 void StatsMeasurement(vector<uint64_t>buckets, AllStats *stats, int index, double nKeys, double &avgDeviationFromMean, vector<double>&observed_k)
 {    
-    // long double theoretical_probability_ln = ExpectedNumberOfBucketsWithKelements_A(10.0L,20.0L, 2.0);
-    // long double theoretical_probability_wln = ExpectedNumberOfBucketsWithKelements_B(10.0L,20.0L, 2.0);
-
-    // std::cout<<"Expected(withLn): "<<theoretical_probability_ln<<"\nExpected(woLn): "<<theoretical_probability_wln<<std::endl;
-    // std::exit(1);
-
     int emptyBucketCount = 0;
     tStats sumBuckets;
     int nCollisions = 0;
 
     for(auto &b: buckets)
     {
-        // stats->bucketCountStats[index] += b;
-
         if(b==0)
             emptyBucketCount++;
         
         if(b>1)
             nCollisions += (b-1);
-        // stats->bucketCollisionsStats[index] += (b<=1)?0.0:(b-1.0);
+        
         sumBuckets += b;
+
+        // Efficiently collect observed distributions
+        if (b < observed_k.size()) {
+            observed_k[b] += 1.0;
+        }
     }
 
     stats->bucketCountStatsMin[index] += sumBuckets.Min;
     stats->bucketCountStatsMax[index] += sumBuckets.Max;
     stats->emptyBucketStats[index] += emptyBucketCount;
     stats->bucketCollisionsStats[index] += nCollisions;
-    
-    // For each K
-    //     match=0
-    //     For each B
-    //         if(k==b)
-    //             match++
-    //     observation= number of buckets with k elements = match    
-    //     observed[k] += observation
-
-    for(double k=0.0; k<=nKeys; ++k)
-    {
-        double nMatchingBuckets = 0.0;
-
-        for(auto &b: buckets)
-        {
-            if(b==k)
-                ++nMatchingBuckets;
-        }
-
-        observed_k[k] += nMatchingBuckets;
-        //cout<<"k: "<<k<<" nMathcingbuckets: "<<nMatchingBuckets<<std::endl;
-
-
-        // double observed_probability = nMatchingBuckets / nKeys;
-        // double theoretical_probability = TheoreticalProbability2((double)buckets.size(), nKeys, k);
-        // double diff = theoretical_probability - observed_probability;
-
-        // avgDeviationFromMean+=diff;
-
-        // cout<<"K: "<<k<<", Observed Prob: "<<std::fixed<<std::setprecision(10)<<observed_probability<< 
-        // ", Theoretical Probability: "<<theoretical_probability<<", Difference: "<<diff<<std::endl;
-
-    }
-
-    //cout<<"Empty Bucket Count ["<<index<<"] : "<<emptyBucketCount<<std::endl;
 }
 
 void AddStatsToCSV(

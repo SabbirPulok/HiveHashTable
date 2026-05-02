@@ -1,3 +1,4 @@
+#pragma once
 #include <cuda_runtime.h>
 #include <cuda/atomic>
 #include "hive_hash_table_struct.cuh"

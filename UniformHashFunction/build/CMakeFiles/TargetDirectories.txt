@@ -1,3 +1,0 @@
-/home/sabbir/Documents/Research/gpu-dictionary/Hash_Function_GPU/build/CMakeFiles/hash_functions_gpu.dir
-/home/sabbir/Documents/Research/gpu-dictionary/Hash_Function_GPU/build/CMakeFiles/edit_cache.dir
-/home/sabbir/Documents/Research/gpu-dictionary/Hash_Function_GPU/build/CMakeFiles/rebuild_cache.dir

@@ -1,6 +1,6 @@
 #include "GPUTimer.h"
 
-CoarseGraindGPUTimer::CoarseGraindGPUTimer()
+CoarseGrainedGPUTimer::CoarseGrainedGPUTimer()
 {
     cudaEventCreate(&startEvent);
     cudaEventCreate(&stopEvent);
@@ -8,24 +8,24 @@ CoarseGraindGPUTimer::CoarseGraindGPUTimer()
 }
 
 
-CoarseGraindGPUTimer::~CoarseGraindGPUTimer()
+CoarseGrainedGPUTimer::~CoarseGrainedGPUTimer()
 {
     cudaEventDestroy(startEvent);
     cudaEventDestroy(stopEvent);
 }
 
-void CoarseGraindGPUTimer::start(cudaStream_t stream) // default stream 0
+void CoarseGrainedGPUTimer::start(cudaStream_t stream) // default stream 0
 {
     cudaEventRecord(startEvent, stream);
 }
 
-void CoarseGraindGPUTimer::stop(cudaStream_t stream)
+void CoarseGrainedGPUTimer::stop(cudaStream_t stream)
 {
     cudaEventRecord(stopEvent, stream);
     cudaEventSynchronize(stopEvent);
     cudaEventElapsedTime(&elapsedTime, startEvent, stopEvent);
 }
-float CoarseGraindGPUTimer::getElapsedTime() // in milliseconds
+float CoarseGrainedGPUTimer::getElapsedTime() // in milliseconds
 {
     return elapsedTime;
 }

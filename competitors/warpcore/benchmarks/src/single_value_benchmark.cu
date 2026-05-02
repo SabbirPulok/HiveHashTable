@@ -177,7 +177,7 @@ int main(int argc, char* argv[])
         storage::key_value::AoSStore<key_t, value_t>>;
 
     single_value_benchmark<hash_table_t>(
-        keys_d, max_keys, input_sizes, {1.0}, print_headers);
+        keys_d, max_keys, input_sizes, {0.65, 0.80, 0.9, 0.95, 1.0}, print_headers);
 
     cudaFree(keys_d); CUERR
 }

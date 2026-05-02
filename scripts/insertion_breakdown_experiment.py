@@ -9,13 +9,13 @@ from benchmark_utils import write_results_to_csv as w_csv
 
 BENCHMARK_EXECUTABLE = "./bin/hive_hash_table_benchmark_breakdown_insert"
 RESULTS_DIR = "./results"
-NUMBER_OF_ITERATIONS = 10
+NUMBER_OF_ITERATIONS = 1
 
-load_factors = [0.40, 0.55, 0.70, 0.85, 0.93]
+load_factors = [0.50, 0.75, 0.90, 0.95, 1.00]
 stage_labels = ['Step A', 'Step B', 'Step C', 'Step D']
 colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']  # blue, orange, green, red
 hatches = ['////', '\\\\', '....', 'xx']
-obtained_lf = []
+
 # Insert Breakdown (in ms):
 # Stage A (Try Replace Path): 47028.40 ms, Percentage of total: 24.88%
 # Stage B (Claim And Commit Path): 69247.05 ms, Percentage of total: 36.63%
@@ -25,13 +25,6 @@ obtained_lf = []
 def parse_output(output):
     metrics = {}
     if output:
-        # Iteration 9 Load Factor: 98.10%
-        last_itr = NUMBER_OF_ITERATIONS - 1
-        load_factor_match = re.search(r'Iteration ' + str(last_itr) + r' Load Factor:\s+([\d\.]+)%', output)
-        if load_factor_match:
-            metrics["load_factor"] = float(load_factor_match.group(1)) / 100.0
-            obtained_lf.append(metrics["load_factor"])
-
         # Extract breakdown times
         breakdown_match = re.search(r'Insert Breakdown \(in ms\):\s+Stage A \(Try Replace Path\): ([\d.]+) ms, Percentage of total: ([\d.]+)%\s+Stage B \(Claim And Commit Path\): ([\d.]+) ms, Percentage of total: ([\d.]+)%\s+Stage C \(Cuckoo Eviction Path\): ([\d.]+) ms, Percentage of total: ([\d.]+)%\s+Stage D \(Stash Path\): ([\d.]+) ms, Percentage of total: ([\d.]+)%', output, flags=re.DOTALL)
         if breakdown_match:
@@ -47,7 +40,7 @@ def parse_output(output):
 
 def plot_stack_bars(load_factors, percent_data):
     # Plot
-    fig, ax = plt.subplots(figsize=(9, 6))
+    fig, ax = plt.subplots(figsize=(10, 7))
     x = np.arange(len(load_factors))
     bar_width = 0.6
     bottom = np.zeros(len(load_factors))
@@ -61,17 +54,38 @@ def plot_stack_bars(load_factors, percent_data):
         )
         bottom += percent_data[:, i]
 
+    # Add text labels for Stage D specifically since it's small
+    for i in range(len(load_factors)):
+        val = percent_data[i, 3]
+        if val > 0:
+            ax.text(x[i], 101, f'{val:.2f}%', ha='center', va='bottom', 
+                    fontsize=10, color=colors[3], fontweight='bold')
+
     # Axis labels & ticks
     ax.set_xticks(x)
-    ax.set_xticklabels([f'{lf:.2f}' for lf in load_factors], fontsize=12)
-    ax.set_xlabel('Load Factor', fontsize=14, fontweight='bold')
-    ax.set_ylabel('Steps Contribution in Total Elapsed Time (%)', fontsize=14, fontweight='bold')
+    ax.set_xticklabels([f'{lf:.2f}' for lf in load_factors], fontsize=16)
+    ax.tick_params(axis='y', labelsize=16)
+    ax.set_xlabel('Load Factor', fontsize=16, fontweight='bold')
+    ax.set_ylabel('Steps Contribution in Total Elapsed Time (%)', fontsize=16, fontweight='bold')
 
     # Grid and title
     ax.grid(axis='y', linestyle='--', linewidth=0.6, alpha=0.7)
-    ax.set_ylim(0, 110)
-    #plt.title('Insertion Stage Breakdown vs. Load Factor', fontsize=15, fontweight='bold')
-
+    ax.set_ylim(0, 115) # Increased to give space for labels
+    
+    # Inset for Stage D Detail
+    from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+    axins = inset_axes(ax, width="30%", height="25%", loc='center right', borderpad=3)
+    
+    # Add a white background to the inset for better readability over the main bars
+    axins.patch.set_facecolor('white')
+    axins.patch.set_alpha(0.9)
+    
+    axins.bar(x, percent_data[:, 3], color=colors[3], hatch=hatches[3], edgecolor='black')
+    axins.set_xticks(x)
+    axins.set_xticklabels([f'{lf:.2f}' for lf in load_factors], fontsize=14, color='black')
+    axins.tick_params(axis='y', labelsize=14, labelcolor='black')
+    axins.set_title('Stage D (Stash) Detail (%)', fontsize=14, fontweight='bold', color='black')
+    axins.grid(axis='y', linestyle='--', alpha=0.5)
 
     ax.legend(
         fontsize=10, ncol=4, frameon=False,
@@ -85,11 +99,14 @@ def plot_stack_bars(load_factors, percent_data):
 
 
 def main():
-    if not os.path.exists(RESULTS_DIR):
+    if not os.path.exists(BENCHMARK_EXECUTABLE):
         print(f"Benchmark executable not found at {BENCHMARK_EXECUTABLE}. Please build the project first.")
         return
     
-    data_layouts = ["HybridSoA-AoS", "AaoS-LeadMetaData"]
+    if not os.path.exists(RESULTS_DIR):
+        os.makedirs(RESULTS_DIR)
+    
+    data_layouts = ["HybridSoA-AoS"]
 
     metrics = {
         "load_factor",
@@ -107,7 +124,7 @@ def main():
         "insert_ratio": 1.0,
         "lookup_ratio": 0.0,
         "delete_ratio": 0.0,
-        "table_size": 24,
+        "table_size": 23,
     }
 
     print("Starting Insertion Breakdown Experiment...")
@@ -116,8 +133,8 @@ def main():
     for load_factor in load_factors:
         params = {
             **common_params,
-            "load_factor": load_factor,
-            "distribution": "unique",
+            "load_factor": load_factor  + 0.6,
+            "distribution": "uniform",
         }
         output = run(params, executable_path=BENCHMARK_EXECUTABLE)
         parsed_metrics = parse_output(output)
@@ -129,7 +146,7 @@ def main():
     w_csv(all_results, RESULTS_DIR, filename, metrics)
     print(f"Experiment complete. Results saved to {os.path.join(RESULTS_DIR, filename)}")
     plot_stack_bars(
-        obtained_lf,
+        load_factors,
         np.array([
             [res["stage_a_percent"], res["stage_b_percent"], res["stage_c_percent"], res["stage_d_percent"]]
             for res in all_results

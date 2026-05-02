@@ -12,16 +12,15 @@
 #include "hash_table_struct.h"
 #include "kernels.cuh"
 #include "cuda_helper.cuh"
-#include "linear_probe_ht.cuh"
 #include "utils.h"
 
 // Default benchmark parameters
 size_t g_table_size = 22; 
-double g_load_factor = 0.9;    
-double g_insert_ratio = 0.5;   // Default to 50% insert
-double g_lookup_ratio = 0.4;   // Default to 30% lookup
-double g_delete_ratio = 0.1;   // Default to 20% delete
-int g_num_iterations = 10;    // Default to 10 iterations
+double g_load_factor = 1.0;    
+double g_insert_ratio = 0.5;   // Default to 100% insert
+double g_lookup_ratio = 0.4;   // Default to 0% lookup
+double g_delete_ratio = 0.1;   // Default to 0% delete
+int g_num_iterations = 1;    // Default to 1 iteration
 int g_threads_per_block = 256; // Default to 256 threads per block
 std::string g_distribution = "uniform"; // Default distribution
 
@@ -128,9 +127,14 @@ int main(int argc, char* argv[])
         std::cout<<"Using AaoS-LeadMetaData data layout for Hive Hash Table Benchmark"<<std::endl;
         layout = HashTableDataLayout::ARRAY_OF_ALIGNED_STRUCTS_LEAD_METADATA;
     }
+    else if(strcmp(g_data_layout.c_str(), "WarpSpeed") == 0)
+    {
+        std::cout<<"Using WarpSpeed data layout / algorithm for Benchmark"<<std::endl;
+        layout = HashTableDataLayout::WARPSPEED;
+    }
     else
     {
-        std::cerr<<"Unknown data layout type. Supported types: HybridSoA-AoS, AaoS, AaoS-LeadMetaData"<<std::endl;
+        std::cerr<<"Unknown data layout type. Supported types: HybridSoA-AoS, AaoS, AaoS-LeadMetaData, WarpSpeed"<<std::endl;
         return 1;
     }
 

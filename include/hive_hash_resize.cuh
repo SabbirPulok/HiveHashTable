@@ -3,6 +3,7 @@
 #include <cuda/atomic>
 #include <cstdint>
 #include "hive_hash_table_struct.cuh"
+
 #include "hash.hpp"
 #include "utils.h"
 #include <algorithm> //std::min
@@ -41,7 +42,7 @@ __device__ bool hash_check(uint64_t kv, int bucket_index, uint32_t index_mask)
 }
 
 template<typename HashPolicy>
-__global__ void hive_hash_split_buckets(
+static __global__ void hive_hash_split_buckets(
     HiveHashTable* table,
     const uint32_t* __restrict__ split_buckets,
     size_t num_split_buckets,
@@ -57,8 +58,8 @@ __global__ void hive_hash_split_buckets(
     uint32_t src_bucket_idx = split_buckets[global_tile_id];
     uint32_t dst_bucket_idx = base_index + src_bucket_idx;
 
-    auto atomic_src_lock = cuda::atomic_ref<uint16_t, cuda::thread_scope_device>(table->lock[src_bucket_idx]);
-    auto atomic_dst_lock = cuda::atomic_ref<uint16_t, cuda::thread_scope_device>(table->lock[dst_bucket_idx]);
+    auto atomic_src_lock = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(table->lock[src_bucket_idx]);
+    auto atomic_dst_lock = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(table->lock[dst_bucket_idx]);
 
     if(lane_id == 0)
     {
@@ -139,7 +140,7 @@ void inline hive_hash_grow( HiveHashTable* d_table,
                      size_t add_buckets)
 {
     HiveHashTable h_table;
-    CoarseGraindGPUTimer timer;
+    CoarseGrainedGPUTimer timer;
     float t = 0.0f;
 
     size_t moved_keys = add_buckets * HIVE_BUCKET_SLOTS;
@@ -220,10 +221,9 @@ inline void regress_round(HiveHashTable& H)
 }
 
 
-// Kernel: do not use inline qualifiers for __global__ functions
-__global__ void hive_hash_merge_buckets(
+static __global__ void hive_hash_merge_buckets(
     HiveHashTable* table,
-    HiveOverflowStash<KeyType, ValueType>* stash,
+    HiveOverflowStashBucket<kv_type>* stash,
     const uint32_t* __restrict__ src_buckets,
     size_t num_src_buckets,
     uint32_t base_index, //the starting index of this round, i.e. 2^m
@@ -239,8 +239,8 @@ __global__ void hive_hash_merge_buckets(
     uint32_t dst_bucket_idx = src_buckets[global_tile_id];
     uint32_t src_bucket_idx = dst_bucket_idx + base_index;
 
-    auto atomic_src_lock = cuda::atomic_ref<uint16_t, cuda::thread_scope_device>(table->lock[src_bucket_idx]);
-    auto atomic_dst_lock = cuda::atomic_ref<uint16_t, cuda::thread_scope_device>(table->lock[dst_bucket_idx]);
+    auto atomic_src_lock = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(table->lock[src_bucket_idx]);
+    auto atomic_dst_lock = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(table->lock[dst_bucket_idx]);
 
     if(lane_id == 0)
     {
@@ -301,7 +301,7 @@ __global__ void hive_hash_merge_buckets(
         else
         {
             //Overflow to stash
-            bool pushed = push_to_stash(stash, kv);
+            bool pushed = push_to_stash(table, stash, get_alternate_bucket<Default2HashPolicy>(unpackKey(kv), 0, table->num_buckets), kv);
             if(pushed)
             {
                 src_bucket->kv[lane_id] = EMPTY_KV;
@@ -311,7 +311,7 @@ __global__ void hive_hash_merge_buckets(
                 //Stash is full, fail the merge
                 if(lane_id == 0) //Only one thread needs to report failure
                 {
-                   auto atomic_success = cuda::atomic_ref<bool, cuda::thread_scope_device>(*success_flag);
+                   auto atomic_success = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(reinterpret_cast<uint32_t&>(*success_flag));
                    atomic_success.store(false, cuda::memory_order_release);
                 }
             }
@@ -337,10 +337,10 @@ __global__ void hive_hash_merge_buckets(
     tile.sync();
     
 }
-void hive_hash_shrink(HiveHashTable* d_table, HiveOverflowStash<KeyType, ValueType>* d_stash, size_t remove_buckets)
+inline void hive_hash_shrink(HiveHashTable* d_table, HiveOverflowStashBucket<kv_type>* d_stash, size_t remove_buckets)
 {
     HiveHashTable h_table;
-    CoarseGraindGPUTimer timer;
+    CoarseGrainedGPUTimer timer;
     float t = 0.0f;
     double removed_keys = remove_buckets * HIVE_BUCKET_SLOTS;
 

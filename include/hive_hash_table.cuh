@@ -11,15 +11,14 @@
 #include "utils.h"
 #include <cstdint>
 #include "hive_hash_table_struct.cuh"
+#include "hive_stash_table.cuh"
 #include "HashPolicies.cuh"
 
 #ifndef BREAKDOWN_INSERT
 #define BREAKDOWN_INSERT 0
 #endif
 
-using KeyType = uint32_t;
-using ValueType = uint32_t;
-using KVType = uint64_t;
+#define MAX_EVICT 8
 
 
 #ifdef __CUDACC__
@@ -32,16 +31,16 @@ __device__ __forceinline__ void freeSlot(uint32_t* pMask, int slot)
 }
 
 //Bucket Locking
-__device__ __forceinline__ void lockBucket(uint16_t* pLock)
+__device__ __forceinline__ void lockBucket(uint32_t* pLock)
 {
-    cuda::atomic_ref<uint16_t, cuda::thread_scope_device> atomic_lock(*pLock);
+    cuda::atomic_ref<uint32_t, cuda::thread_scope_device> atomic_lock(*pLock);
     //Spin until we successfully set the lock from 0 to 1
     while(atomic_lock.exchange(1, cuda::memory_order_acquire) != 0);
 }
 
-__device__ __forceinline__ void unlockBucket(uint16_t* pLock)
+__device__ __forceinline__ void unlockBucket(uint32_t* pLock)
 {
-    cuda::atomic_ref<uint16_t, cuda::thread_scope_device> atomic_lock(*pLock);
+    cuda::atomic_ref<uint32_t, cuda::thread_scope_device> atomic_lock(*pLock);
     //Release the lock by setting it back to 0
     atomic_lock.store(0, cuda::memory_order_release);
 }
@@ -89,81 +88,48 @@ void hive_launch_mix_ops_kernel(
     bool verify
 );
 
-void hiveStashTableCreate(
-    HiveOverflowStash<KeyType, ValueType>& stash_host,
-    HiveOverflowStash<KeyType, ValueType>* stash_device,
-    size_t stash_capacity,
-    bool stash_enabled
-);
-
 //Create Host and Device Side Hash Table from HiveHashTable
 void hiveHashTableCreate(
     HiveHashTable& table_host,
     HiveHashTable* table_device,
-    HiveOverflowStash<KeyType, ValueType>& stash_host,
-    HiveOverflowStash<KeyType, ValueType>* stash_device,
     size_t num_buckets,
-    size_t max_num_buckets,
-    size_t max_evictions,
-    bool stash_enabled,
-    size_t stash_capacity
+    size_t max_num_buckets
 );
 
 
 void hiveHashTableCreate(
-    HiveHashTableAoaS<KVType>& table_host,
-    HiveHashTableAoaS<KVType>* table_device,
-    HiveOverflowStash<KeyType, ValueType>& stash_host,
-    HiveOverflowStash<KeyType, ValueType>* stash_device,
+    HiveHashTableAoaS<kv_type>& table_host,
+    HiveHashTableAoaS<kv_type>* table_device,
     size_t num_buckets,
-    size_t max_num_buckets,
-    size_t max_evictions,
-    bool stash_enabled,
-    size_t stash_capacity
+    size_t max_num_buckets
 );
 
 void hiveHashTableCreate(
-    HiveHashTableAoaS_LeadMetaData<KVType>& table_host,
-    HiveHashTableAoaS_LeadMetaData<KVType>* table_device,
-    HiveOverflowStash<KeyType, ValueType>& stash_host,
-    HiveOverflowStash<KeyType, ValueType>* stash_device,
+    HiveHashTableAoaS_LeadMetaData<kv_type>& table_host,
+    HiveHashTableAoaS_LeadMetaData<kv_type>* table_device,
     size_t num_buckets,
-    size_t max_num_buckets,
-    size_t max_evictions,
-    bool stash_enabled,
-    size_t stash_capacity
+    size_t max_num_buckets
 );
 
 void hiveHashTableDestroy(
-    HiveHashTable& table_host, HiveHashTable* table_device,
-    HiveOverflowStash<KeyType, ValueType>& stash_host, HiveOverflowStash<KeyType, ValueType>* stash_device);
+    HiveHashTable& table_host, HiveHashTable* table_device);
 
 void hiveHashTableDestroy(
-    HiveHashTableAoaS<KVType>& table_host,
-    HiveHashTableAoaS<KVType>* table_device,
-    HiveOverflowStash<KeyType, ValueType>& stash_host,
-    HiveOverflowStash<KeyType, ValueType>* stash_device
+    HiveHashTableAoaS<kv_type>& table_host,
+    HiveHashTableAoaS<kv_type>* table_device
 );
 
 void hiveHashTableDestroy(
-    HiveHashTableAoaS_LeadMetaData<KVType>& table_host,
-    HiveHashTableAoaS_LeadMetaData<KVType>* table_device,
-    HiveOverflowStash<KeyType, ValueType>& stash_host,
-    HiveOverflowStash<KeyType, ValueType>* stash_device
+    HiveHashTableAoaS_LeadMetaData<kv_type>& table_host,
+    HiveHashTableAoaS_LeadMetaData<kv_type>* table_device
 );
-//Drain Stash from Device to Host
-void hive_drain_stash(
-    HiveOverflowStash<KeyType, ValueType>* stash_table_device,
-    HiveOverflowStash<KeyType, ValueType>& stash_table_host,
-    uint32_t max_to_drain,
-    cudaStream_t stream
-);
+
 
 #ifdef __CUDACC__
 template<typename TableType, typename HashPolicy = Default2HashPolicy>
 __global__ void hive_mixed_kernel(
     TableType* table,
-    HiveOverflowStash<KeyType, ValueType>* stash,
+    HiveOverflowStashBucket<kv_type>* stash,
     Operation* ops,
     size_t num_ops,
     uint64_t* results //output parameter
@@ -172,3 +138,7 @@ __global__ void hive_mixed_kernel(
     #endif
 );
 #endif
+
+void hiveHashTableClear(HiveHashTable* table_device);
+void hiveHashTableClear(HiveHashTableAoaS<kv_type>* table_device);
+void hiveHashTableClear(HiveHashTableAoaS_LeadMetaData<kv_type>* table_device);

@@ -11,7 +11,7 @@ from benchmark_utils import write_results_to_csv as w_csv
 # =========================
 # Experiment configuration
 # =========================
-table_sizes = [18, 19, 20, 21, 22]
+table_sizes = [19, 20, 21, 22]
 hash_policies = [
     'Default2Hash',
     'TripleHash',
@@ -98,10 +98,11 @@ def plot_grouped_bars(keys, data, out_png_path: str):
 
     # Center ticks under the group of bars
     center_offset = bar_width * (data.shape[1] - 1) / 2.0
-    plt.xticks(x + center_offset, keys, fontsize=12)
+    plt.xticks(x + center_offset, keys, fontsize=18)
+    plt.yticks(fontsize=18)
 
-    plt.xlabel('Number of Keys', fontsize=14, fontweight='bold')
-    plt.ylabel('Throughput (Mops/sec)', fontsize=14, fontweight='bold')
+    plt.xlabel('Number of Keys', fontsize=18, fontweight='bold')
+    plt.ylabel('Throughput (M-KV/s)', fontsize=18, fontweight='bold')
 
     plt.legend(fontsize=10, loc='best', frameon=False)
     plt.tight_layout()
@@ -129,38 +130,80 @@ def main():
 
     data = np.zeros((len(table_sizes), len(hash_policies)), dtype=np.float64)
 
-    for ti, table_size in enumerate(table_sizes):
-        row = {'table_size': table_size}
+    # timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_name = f"hash_policy_sweep.csv"
 
-        for pi, hash_policy in enumerate(hash_policies):
-            params = {
-                **common_params,
-                'table_size': table_size,
-                'hash_policy': hash_policy
-            }
+    if not os.path.exists(os.path.join(RESULTS_DIR, csv_name)):
+        for ti, table_size in enumerate(table_sizes):
+            row = {'table_size': table_size}
 
-            output = run(params, BENCHMARK_EXECUTABLE)
-            metrics = parse_output(output)
-            thr = metrics['throughput']
+            for pi, hash_policy in enumerate(hash_policies):
+                params = {
+                    **common_params,
+                    'table_size': table_size,
+                    'hash_policy': hash_policy
+                }
 
-            col_name = f"{hash_policy}_throughput"
-            row[col_name] = thr
-            data[ti, pi] = thr
+                output = run(params, BENCHMARK_EXECUTABLE)
+                metrics = parse_output(output)
+                thr = metrics['throughput']
 
-            print(f"[table_size=2^{table_size}] {hash_policy}: {thr:.2f} Mops/sec")
+                col_name = f"{hash_policy}_throughput"
+                row[col_name] = thr
+                data[ti, pi] = thr
 
-        results_rows.append(row)
+                print(f"[table_size=2^{table_size}] {hash_policy}: {thr:.2f} M-KV/s")
 
-    all_metrics = ['table_size'] + [f"{hp}_throughput" for hp in hash_policies]
+            results_rows.append(row)
+        all_metrics = ['table_size'] + [f"{hp}_throughput" for hp in hash_policies]
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_name = f"hash_policy_sweep_{timestamp}.csv"
-    w_csv(results_rows, RESULTS_DIR, csv_name, all_metrics)
-    print(f"\nSaved CSV: {os.path.join(RESULTS_DIR, csv_name)}")
+        w_csv(results_rows, RESULTS_DIR, csv_name, all_metrics)
+        print(f"\nSaved CSV: {os.path.join(RESULTS_DIR, csv_name)}")
+    else:
+        print(f"CSV already exists: {os.path.join(RESULTS_DIR, csv_name)}")
+        with open(os.path.join(RESULTS_DIR, csv_name), 'r') as f:
+            header = f.readline().strip().split(',')
+            hash_policy_cols = [col for col in header if col.endswith('_throughput')]
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+
+                parts = line.split(',')
+
+                # build a header->index map (safe even if done repeatedly)
+                header_idx = {name: i for i, name in enumerate(header)}
+
+                # safe parse table_size using header if possible
+                try:
+                    table_idx = header_idx.get('table_size', 0)
+                    table_size = int(parts[table_idx])
+                except (ValueError, IndexError):
+                    # malformed row, skip
+                    continue
+
+                if table_size not in table_sizes:
+                    # unexpected table size, skip
+                    continue
+
+                row_pos = table_sizes.index(table_size)
+
+                for pi, hp_col in enumerate(hash_policy_cols):
+                    idx = header_idx.get(hp_col)
+                    if idx is None or idx >= len(parts):
+                        thr = 0.0
+                    else:
+                        val = parts[idx].strip()
+                        try:
+                            thr = float(val) if val != '' else 0.0
+                        except ValueError:
+                            thr = 0.0
+
+                    data[row_pos, pi] = thr
 
     keys = [f"2^{ts}" for ts in table_sizes]
 
-    png_name = f"hash_function_comparison_{timestamp}.png"
+    png_name = f"hash_function_comparison.png"
     png_path = os.path.join(RESULTS_DIR, png_name)
 
     plot_grouped_bars(keys, data, png_path)

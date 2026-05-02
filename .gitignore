@@ -3,13 +3,22 @@ bin/
 *.d
 *.bak
 
-.vscode/
+Paper/*.pdf
+Paper/*.aux
+Paper/*.log
+Paper/*.out
+Paper/*.synctex.gz
 log.txt
 
 *.csv
 *.log
 *.zip
 
+
+competitors/cuCollections/build/
+competitors/DyCuckoo/dynamicHash/build/
 results/
 
 scripts/__pycache__/
+.aider*
+

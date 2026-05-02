@@ -26,7 +26,7 @@ __host__ __device__ inline uint32_t hash32_alt(uint32_t key, uint32_t table_size
     return static_cast<uint32_t>(key % table_size);
 }
 
-__host__ __device__ inline uint32_t hash1(uint32_t key, uint32_t table_size) {
+__device__ __forceinline__ uint32_t hash1(uint32_t key, uint32_t table_size) {
     key = ~key + (key << 15);
     key = key ^ (key >> 12);
     key = key + (key << 2);
@@ -45,24 +45,35 @@ __host__ __device__ inline uint32_t hash1(uint32_t key) {
     key = key ^ (key >> 16);
     return key;
 }
-
-__host__ __device__ inline uint32_t hash2(uint32_t key, uint32_t table_size) {
+          
+__device__ __forceinline__ uint32_t hash2(uint32_t key, uint32_t table_size) {
+    uint32_t temp;
     key = (key + 0x7ed55d16) + (key << 12);
-    key = (key ^ 0xc761c23c) ^ (key >> 19);
+    // key = (key ^ 0xc761c23c) ^ (key >> 19);
+    asm("shr.u32 %0, %1, 19;" : "=r"(temp) : "r"(key));
+    asm("lop3.b32 %0, %0, %1, 0xc761c23c, 0x96;" : "+r"(key) : "r"(temp));
     key = (key + 0x165667b1) + (key << 5);
     key = (key + 0xd3a2646c) ^ (key << 9);
     key = (key + 0xfd7046c5) + (key << 3);
-    key = (key ^ 0xb55a4f09) ^ (key >> 16);
+    // key = (key ^ 0xb55a4f09) ^ (key >> 16);
+    asm("shr.u32 %0, %1, 16;" : "=r"(temp) : "r"(key));
+    asm("lop3.b32 %0, %0, %1, 0xb55a4f09, 0x96;" : "+r"(key) : "r"(temp));
     return key % table_size;
 }
 
 __host__ __device__ inline uint32_t hash2(uint32_t key) {
+    uint32_t temp;
     key = (key + 0x7ed55d16) + (key << 12);
-    key = (key ^ 0xc761c23c) ^ (key >> 19);
+    //key = (key ^ 0xc761c23c) ^ (key >> 19);
+    asm("shr.u32 %0, %1, 19;" : "=r"(temp) : "r"(key));
+    asm("lop3.b32 %0, %0, %1, 0xc761c23c, 0x96;" : "+r"(key) : "r"(temp));
+
     key = (key + 0x165667b1) + (key << 5);
     key = (key + 0xd3a2646c) ^ (key << 9);
     key = (key + 0xfd7046c5) + (key << 3);
-    key = (key ^ 0xb55a4f09) ^ (key >> 16);
+    //key = (key ^ 0xb55a4f09) ^ (key >> 16);
+    asm("shr.u32 %0, %1, 16;" : "=r"(temp) : "r"(key));
+    asm("lop3.b32 %0, %0, %1, 0xb55a4f09, 0x96;" : "+r"(key) : "r"(temp));
     return key;
 }
 

@@ -12,7 +12,6 @@
 #include "hash_table_struct.h"
 #include "kernels.cuh"
 #include "cuda_helper.cuh"
-#include "linear_probe_ht.cuh"
 #include "utils.h"
 
 // Default benchmark parameters

@@ -1,14 +1,14 @@
 #pragma once
 #include <cuda_runtime.h>
 
-class CoarseGraindGPUTimer{
+class CoarseGrainedGPUTimer{
     private:
         cudaEvent_t startEvent, stopEvent;
         float elapsedTime;
     
     public:
-        CoarseGraindGPUTimer();
-        ~CoarseGraindGPUTimer();
+        CoarseGrainedGPUTimer();
+        ~CoarseGrainedGPUTimer();
 
         void start(cudaStream_t stream = 0); // default stream 0
         void stop(cudaStream_t stream = 0);

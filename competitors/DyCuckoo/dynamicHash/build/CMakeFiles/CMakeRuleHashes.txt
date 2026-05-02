@@ -1,3 +1,0 @@
-# Hashes of file build rules.
-1d37432ebddfde2ad2bcfeeebb6ed2b4 CMakeFiles/dynamic_test.dir/test/dynamic_test_generated_dynamic_test.cu.o
-d38e4936b094d736cc123c93ecb8eb53 CMakeFiles/static_test.dir/test/static_test_generated_static_test.cu.o

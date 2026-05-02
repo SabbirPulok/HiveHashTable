@@ -19,7 +19,7 @@ from benchmark_utils import read_results_from_multiple_cols as read_multi_col
 
 #Define the path of benchmark executable
 BENCHMARK_EXECUTABLE = "./bin/hive_hash_table_benchmark"
-LOOKUP_BENCHMARK = "./bin/hive_hash_table_lookup_only_workload"
+LOOKUP_BENCHMARK = "./bin/hive_hash_table_real_workload"
 
  #Results directory
 RESULTS_DIR = "./results"
@@ -32,9 +32,9 @@ DYCUCKOO_BSP_DIR = "./competitors/DyCuckoo/dynamicHash/"
 
 table_sizes = [20, 21, 22, 23, 24, 25, 26] #2^n
 load_factor = 0.9
-insert_ratio = 0.5
-query_ratio = 0.4
-delete_ratio = 0.1
+insert_ratio = 0.25
+query_ratio = 0.5
+delete_ratio = 0.25
 num_iterations = 1
 
 
@@ -136,20 +136,21 @@ def plot_results(x_vals, series, fig_name, fig_title, x_label, y_label, two_powe
             color=s.get("color", None),
             linestyle=s.get("ls", '-'),
             marker=s.get("marker", 'o'),
-            linewidth=3,
-            markersize=6
+            linewidth=5,
+            markersize=10
         )
     if log_scale:
         plt.xscale("log", base=2)
     if two_power:
-        plt.xticks(x_vals, [f"2^{k}" for k in x_vals])
+        plt.xticks(x_vals, [f"2^{k}" for k in x_vals], fontsize=20)
     else:
-        plt.xticks(x_vals, [str(k) for k in x_vals])
+        plt.xticks(x_vals, [str(k) for k in x_vals], fontsize=20)
     
-    plt.xlabel(x_label, fontsize=16, fontweight='bold')
-    plt.ylabel(y_label, fontsize=16, fontweight='bold')
-    plt.title(fig_title, fontsize=18, fontweight='bold')
-    plt.legend(fontsize=14, loc='best', frameon=False)
+    plt.yticks(fontsize=20)
+    plt.xlabel(x_label, fontsize=20, fontweight='bold')
+    plt.ylabel(y_label, fontsize=20, fontweight='bold')
+    plt.title(fig_title, fontsize=20, fontweight='bold')
+    # plt.legend(fontsize=14, loc='best', frameon=False)
     plt.grid(True, linestyle='--', linewidth=0.8, alpha=0.6)
     plt.tight_layout()
     plt.savefig(RESULTS_DIR + '/' + fig_name, dpi=300, bbox_inches='tight')
@@ -160,7 +161,7 @@ def main():
         print(f"Benchmark executable not found at {BENCHMARK_EXECUTABLE}. Please build the project first.")
         return
 
-    data_layouts = ["HybridSoA-AoS", "AaoS-LeadMetaData"]
+    data_layouts = ["HybridSoA-AoS", "WarpSpeed"]
 
     common_params = {
         "load_factor": load_factor, #fixed load factor of 90%
@@ -187,41 +188,63 @@ def main():
     print("Starting Experiment 3: Mixed Workload (50% Inserts, 40% Lookups, 10% Deletes) Sweeping Table Sizes")
     print("Running Hive Hash Table Benchmark...")
     common_params["num_iterations"] = 1
+
+    hive_mixed_csv_path = os.path.join(RESULTS_DIR, f"mixed_workload_{insert_ratio*100}I_{query_ratio*100}L_{delete_ratio*100}D.csv")
+    if not os.path.isfile(hive_mixed_csv_path):
+        for data_layout in data_layouts:
+            common_params["data_layout"] = data_layout
+            for table_size in table_sizes:
+                params = {
+                    **common_params,
+                    "table_size": table_size,
+                    "insert_ratio": 0.5,
+                    "lookup_ratio": 0.4,
+                    "delete_ratio": 0.1,
+                }
+                output= run(params, BENCHMARK_EXECUTABLE)
+                metrics = parse_output(output)
+                metrics["data_layout"] = data_layout
+                results.append(metrics)
+        os.makedirs(RESULTS_DIR, exist_ok=True)
+        w_csv(results, RESULTS_DIR, f"mixed_workload_{insert_ratio*100}I_{query_ratio*100}L_{delete_ratio*100}D.csv", all_possible_metric_keys)
+    else:
+        print(f"Reading Hive Hash Table mixed workload results from {hive_mixed_csv_path}")
+        with open(hive_mixed_csv_path, "r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if "throughput_mops" in row and row["throughput_mops"]:
+                    row["throughput_mops"] = float(row["throughput_mops"])
+                results.append(row)
     
-    for data_layout in data_layouts:
-        common_params["data_layout"] = data_layout
-        for table_size in table_sizes:
-            params = {
-                **common_params,
-                "table_size": table_size,
-                "insert_ratio": 0.5,
-                "lookup_ratio": 0.4,
-                "delete_ratio": 0.1,
-            }
-            output= run(params, BENCHMARK_EXECUTABLE)
-            metrics = parse_output(output)
-            results.append(metrics)
-    
-    hive_hybrid_concurrent_throughputs = [r.get("throughput_mops", 0) for r in results[0:len(table_sizes)]]
-    hive_aoas_concurrent_throughputs = [r.get("throughput_mops", 0) for r in results[len(table_sizes):2*len(table_sizes)]]
+    hive_hybrid_concurrent_throughputs = [r.get("throughput_mops", 0) for r in results if r.get("data_layout") == "HybridSoA-AoS"]
+    warpspeed_concurrent_throughputs = [r.get("throughput_mops", 0) for r in results if r.get("data_layout") == "WarpSpeed"]
+
+    if len(hive_hybrid_concurrent_throughputs) < len(table_sizes):
+        hive_hybrid_concurrent_throughputs.extend([0] * (len(table_sizes) - len(hive_hybrid_concurrent_throughputs)))
+    if len(warpspeed_concurrent_throughputs) < len(table_sizes):
+        warpspeed_concurrent_throughputs.extend([0] * (len(table_sizes) - len(warpspeed_concurrent_throughputs)))
+
     # Running Benchmark for Slabhash Concurrent Workload
     print("Running SlabHash BSP Concurrent Workload Benchmark...")
-    slabhash_concurrent_result_dir = run_SlabHash_conc(slabhash_root)
-    # slabhash_concurrent_result_dir = os.path.join(slabhash_root, "build/bench_result/concurrent_experiment.csv")
+    slabhash_concurrent_result_dir = os.path.join(slabhash_root, "build/bench_result/concurrent_experiment.csv")
+    if not os.path.isfile(slabhash_concurrent_result_dir):
+        slabhash_concurrent_result_dir = run_SlabHash_conc(slabhash_root)
+        pass
+    else:
+        print(f"Found existing data at {slabhash_concurrent_result_dir}. Skipping SlabHash concurrent execution...")
+        
     slabhash_concurrent_throughputs = read_col(slabhash_concurrent_result_dir, "concurrent_rate_mps")[:len(table_sizes)]
     
+    if len(slabhash_concurrent_throughputs) < len(table_sizes):
+        slabhash_concurrent_throughputs.extend([0] * (len(table_sizes) - len(slabhash_concurrent_throughputs)))
+    
     series = [
-        { "label" : "Hive Hash Table (HybridSoA-AoS)", "y": hive_hybrid_concurrent_throughputs, "color": "red", "marker": 'o', "ls": '-'},
-        { "label" : "Hive Hash Table (AoAS)", "y": hive_aoas_concurrent_throughputs, "color": "orange", "marker": 'o', "ls": '--'},
+        { "label" : "Hive Hash Table", "y": hive_hybrid_concurrent_throughputs, "color": "red", "marker": 'o', "ls": '-'},
+        { "label" : "WarpSpeed", "y": warpspeed_concurrent_throughputs, "color": "cadetblue", "marker": 'P', "ls": 'dashdot'},
         { "label" : "SlabHash", "y": slabhash_concurrent_throughputs, "color": "brown", "marker": 'x', "ls": '-.'},
     ]
-    #Write results to CSV
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"mixed_workload_{timestamp}.csv"
-    w_csv(results, RESULTS_DIR, filename, all_possible_metric_keys)
-    
-    plot_results(table_sizes, series, filename.replace(".csv", ".png"),
-                 "", "Number of Operations", "Throughput (MOPS)")
+    plot_results(table_sizes, series, f"mixed_workload_{insert_ratio*100}I_{query_ratio*100}L_{delete_ratio*100}D.png",
+                 "", "Number of Operations", "Throughput (M-KV/s)")
 
   
 if __name__ == "__main__":

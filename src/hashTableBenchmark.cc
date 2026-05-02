@@ -2,7 +2,6 @@
 #include "hash_table_struct.h"
 #include "hash.hpp"
 #include "GPUTimer.h"
-#include "linear_probe_ht.cuh"
 #include "utils.h"
 #include "hive_hash_table.cuh"
 #include "zipf_distribution.h"
@@ -154,223 +153,6 @@ void HashTableBenchmark::generateAccessPatterns(std::vector<uint32_t>& pattern, 
     }
 }
 
-void HashTableBenchmark::runBenchmarkLinearProbingWithNoMixOps(
-    const std::vector<size_t> table_sizes,
-    const std::vector<double> load_factors,
-    const std::vector<std::string> distributions,
-    int num_iterations,
-    std::vector<HashTableBenchmarkResult>& results
-)
-{ 
-    // Implementation of the benchmark
-    for(size_t table_size : table_sizes)
-    {
-        for(double lf : load_factors)
-        {
-            for(const std::string& dist : distributions)
-            {
-                std::cout<<"Table Size: "<<pretty_print_number(table_size)<<", Load Factor: "<<lf<<", Distribution: "<<dist<<std::endl;
-
-                // Calculate number of inserts as next power of 2
-                size_t num_inserts = static_cast<size_t>(table_size * lf);
-                // if (num_inserts == 0) num_inserts = 1;
-                // else num_inserts = 1ULL << (sizeof(size_t) * 8 - __builtin_clzll(num_inserts - 1));
-
-                size_t num_queries = num_inserts;
-
-                size_t num_deletes = num_inserts;
-
-                //Generate test keys
-                std::vector<uint64_t>keys;
-                std::vector<uint64_t>query_keys;
-                std::vector<uint64_t>results_query(num_queries, 0);
-                std::vector<uint64_t>delete_keys;
-                std::vector<HashEntry>hash_table(table_size);
-
-                generateTestKeys(keys, num_inserts, dist);
-                //generateTestKeys(query_keys, num_queries, dist);
-                //generateTestKeys(delete_keys, num_deletes, dist);
-                
-                query_keys = keys; //lookup same keys as inserted
-                delete_keys = keys; //delete same keys as inserted
-
-                initHashTable(hash_table, table_size);
-
-                std::cout<< "Num Inserts: " << pretty_print_number(num_inserts) << ", Num Queries: " << pretty_print_number(num_queries) << ", Num Deletes: " << pretty_print_number(num_deletes) << std::endl;
-
-                std::vector<KernelType> kernels_array = {
-                    KernelType::INSERT,
-                    KernelType::LOOKUP,
-                    KernelType::DELETE
-                };
-
-                //Launch Parameters
-                int threads_per_block = 1024;
-                int num_blocks = (num_inserts + threads_per_block -1)/threads_per_block;
-                std::cout<<"Num Blocks: "<<num_blocks<<", Threads per Block: "<<threads_per_block<<std::endl;
-
-                LinearProbeConfig lp_config;
-                lp_config.load_factor = lf;
-                lp_config.threads_per_block = threads_per_block;
-                lp_config.blocks_per_grid = num_blocks;
-                lp_config.numIterations = num_iterations;
-                lp_config.insert_keys = &keys;
-                lp_config.query_keys = &query_keys;
-                lp_config.results = &results_query;
-                lp_config.delete_keys = &delete_keys;
-                lp_config.table = hash_table.data();
-                lp_config.table_size = table_size;
-                lp_config.num_inserts = num_inserts;
-                lp_config.num_queries = num_queries;
-                lp_config.num_deletes = num_deletes;
-                lp_config.max_probes = 64;
-                lp_config.kernels = kernels_array;
-
-                //launch linear probing kernel with no mix ops
-                {
-                    lp_launch_kernel_with_no_mix_ops(
-                        lp_config,
-                        table_size,
-                        threads_per_block,
-                        num_blocks,
-                        num_iterations,
-                        VERIFICATION_VERBOSE //verification verbose, turn it true for small table sizes (< 1<<16)
-                    );
-
-                    HashTableBenchmarkResult result(
-                    "Linear Probing (No Mix Ops)- " + dist + " - LF: " + std::to_string(lf) + " - Size: " + std::to_string(table_size),
-                    {
-                        {KernelType::INSERT, lp_config.elapsed_times[KernelType::INSERT]},
-                        {KernelType::LOOKUP, lp_config.elapsed_times[KernelType::LOOKUP]},
-                        {KernelType::DELETE, lp_config.elapsed_times[KernelType::DELETE]}
-                    },
-                    {
-                        {KernelType::INSERT, bool(VERIFICATION_VERBOSE) ? lp_config.throughput_mlops[KernelType::INSERT] : static_cast<double>(num_inserts)/(lp_config.elapsed_times[KernelType::INSERT]/1000.0)/1e6},
-                        {KernelType::LOOKUP, bool(VERIFICATION_VERBOSE) ? lp_config.throughput_mlops[KernelType::LOOKUP] : static_cast<double>(num_queries)/(lp_config.elapsed_times[KernelType::LOOKUP]/1000.0)/1e6},
-                        {KernelType::DELETE, bool(VERIFICATION_VERBOSE) ? lp_config.throughput_mlops[KernelType::DELETE] : static_cast<double>(num_deletes)/(lp_config.elapsed_times[KernelType::DELETE]/1000.0)/1e6}
-                    });
-                    
-                    results.push_back(result);
-                    results.back().print();
-                }
-            }
-        }
-    }
-}
-
-void HashTableBenchmark::runBenchmarkLinearProbingWithMixOps(
-    const std::vector<size_t> table_sizes,
-    const std::vector<double> load_factors,
-    const std::vector<std::string> distributions,
-    const std::array<double, 3> distribution_ratio, //{insert_ratio, lookup_ratio, delete_ratio}
-    int num_iterations,
-    std::vector<HashTableBenchmarkResult>& results
-)
-{
-    // Implementation of the benchmark
-    for(size_t table_size : table_sizes)
-    {
-        for(double lf : load_factors)
-        {
-            for(const std::string& dist : distributions)
-            {
-                std::cout<<"Table Size: "<<pretty_print_number(table_size)<<", Load Factor: "<<lf<<", Distribution: "<<dist<<std::endl;
-
-                // Calulcate number of inserts, lookup, deletes based on distribution ratio and load factor
-                size_t num_inserts = static_cast<size_t>(table_size * lf);
-                size_t total_ops = static_cast<size_t>(num_inserts / distribution_ratio[0]);
-                size_t num_queries = static_cast<size_t>(total_ops * distribution_ratio[1]);
-                size_t num_deletes = static_cast<size_t>(total_ops * distribution_ratio[2]);
-
-                std::cout<< "Num Inserts: " << pretty_print_number(num_inserts) << ", Num Queries: " << pretty_print_number(num_queries) << ", Num Deletes: " << pretty_print_number(num_deletes) << std::endl;
-
-                std::cout<<"Distribution Ratio (Insert:Lookup:Delete): "<<distribution_ratio[0]<<":"<<distribution_ratio[1]<<":"<<distribution_ratio[2]<<std::endl;
-
-                std::cout<<"Total Ops: "<<pretty_print_number(num_inserts + num_queries + num_deletes)<<std::endl;
-
-                std::vector<uint64_t>keys;
-                std::vector<uint64_t>query_keys;
-                std::vector<uint64_t>delete_keys;
-                std::vector<uint64_t>totalops_results(total_ops, static_cast<uint64_t>(EMPTY_KEY));
-
-                std::vector<Operation> mix_ops;
-                mix_ops.reserve(num_inserts + num_queries + num_deletes);
-                
-                //Generate test keys
-                generateTestKeys(keys, num_inserts, dist);
-
-                //fill the mix_ops with insert first
-                for(auto key : keys) {
-                    mix_ops.push_back(Operation{OperationType::INSERT, key});
-                }
-
-                query_keys = keys; 
-                delete_keys = keys;
-
-                //chose lookup and delete keys from inserted keys
-                query_keys.resize(num_queries);
-
-                for(auto key : query_keys) {
-                    mix_ops.push_back(Operation{OperationType::LOOKUP, key});
-                }
-                delete_keys.resize(num_deletes);
-
-                for(auto key : delete_keys) {
-                    mix_ops.push_back(Operation{OperationType::DELETE, key});
-                }
-
-                //shuffle the mix_ops
-                std::shuffle(mix_ops.begin(), mix_ops.end(), rng);
-
-                std::vector<HashEntry> hash_table(table_size);
-                initHashTable(hash_table, table_size);
-
-                //Launch Parameters
-                int threads_per_block = 1024;
-                int num_blocks = (mix_ops.size() + threads_per_block -1)/threads_per_block;
-
-                std::cout<<"Num Blocks: "<<num_blocks<<", Threads per Block: "<<threads_per_block<<std::endl;
-
-                LinearProbeConfig lp_config;
-
-                lp_config.load_factor = lf;
-                lp_config.threads_per_block = threads_per_block;
-                lp_config.blocks_per_grid = num_blocks;
-                lp_config.numIterations = num_iterations;
-                lp_config.total_ops_results = totalops_results.data();
-                lp_config.table = hash_table.data();
-                lp_config.table_size = table_size;
-                lp_config.max_probes = 64;
-                lp_config.kernels = {KernelType::MIX_OPS};
-
-                //Linear Probe with mix Ops
-                {
-                    lp_launch_kernel_with_mix_ops(
-                        lp_config,
-                        mix_ops,
-                        threads_per_block,
-                        num_blocks,
-                        num_iterations,
-                        (bool)VERIFICATION_VERBOSE //verification verbose, turn it true for small table sizes (< 1<<16)
-                    );
-
-                    HashTableBenchmarkResult result(
-                    "Linear Probing (Mix Ops)- " + dist + " - LF: " + std::to_string(lf) + " - Size: " + std::to_string(table_size),
-                    {
-                        {KernelType::MIX_OPS, lp_config.elapsed_times[KernelType::MIX_OPS]}
-                    },
-                    {
-                        {KernelType::MIX_OPS, (bool)VERIFICATION_VERBOSE ? lp_config.throughput_mlops[KernelType::MIX_OPS] : static_cast<double>(mix_ops.size())/(lp_config.elapsed_times[KernelType::MIX_OPS]/1000.0)/1e6} //MOPS
-                    });
-                    
-                    results.push_back(result);
-                    results.back().print();
-                }
-            }
-        }
-    }
-}
-
 void HashTableBenchmark::runBenchmarkHiveHashTableWithMixOps(
     HashTableDataLayout layout,
     const size_t table_size,
@@ -450,19 +232,32 @@ void HashTableBenchmark::runBenchmarkHiveHashTableWithMixOps(
     
     double elapsed_time = 0.0;
 
-    hash_table_kernel_dispatch(
-        mix_ops.data(),
-        mix_ops.size(),
-        table_size,
-        threads_per_block,
-        num_blocks,
-        num_iterations,
-        elapsed_time,
-        totalops_results.data(),
-        (bool)VERIFICATION_VERBOSE,
-        layout,
-        hash_policy
-    );
+    if (layout == HashTableDataLayout::WARPSPEED) {
+        run_warpspeed_mixed_workload(
+            mix_ops.data(),
+            mix_ops.size(),
+            table_size,
+            threads_per_block,
+            num_iterations,
+            elapsed_time,
+            totalops_results.data(),
+            (bool)VERIFICATION_VERBOSE
+        );
+    } else {
+        hash_table_kernel_dispatch(
+            mix_ops.data(),
+            mix_ops.size(),
+            table_size,
+            threads_per_block,
+            num_blocks,
+            num_iterations,
+            elapsed_time,
+            totalops_results.data(),
+            (bool)VERIFICATION_VERBOSE,
+            layout,
+            hash_policy
+        );
+    }
 
     std::cout << "Throughput: " << static_cast<double>(mix_ops.size())/(elapsed_time/1000.0)/1e6 << std::endl;
     result = HashTableBenchmarkResult(

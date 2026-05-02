@@ -1,3 +1,4 @@
+import argparse
 import datetime
 import pandas as pd
 import numpy as np
@@ -39,14 +40,11 @@ METRIC_KEYS = [
 def parse_output(output: str) -> dict:
     """Parses the output of the benchmark executable to extract metrics."""
     metrics = {}
+    if not output: return metrics
 
     device_name = re.search(r"Device Name:\s+(.+)", output)
     if device_name:
         metrics["device_name"] = device_name.group(1).strip()
-
-    # load_factor = re.search(r"Iteration 0 Load Factor:\s+([\d\.]+)\%", output)
-    # if load_factor:
-    #     metrics["load_factor"] = float(load_factor.group(1)) / 100.0
 
     buckets_and_slots_added = re.search(r"Number of New Buckets Added:\s+(\d+), Number of KV Slots Included:\s+(\d+)", output)
     if buckets_and_slots_added:
@@ -97,7 +95,7 @@ def plot_grouped_bar_chart(x_labels, y_values, bar_names, fig_name, fig_title, x
     plt.savefig(os.path.join(RESULTS_DIR, fig_name), dpi=300, bbox_inches='tight')
     plt.close()
 
-def run_experiment():
+def run_experiment(compute_capability=None):
     """Runs the dynamic resizing benchmark experiments and plots the results."""
     if not os.path.exists(BENCHMARK_EXECUTABLE):
         print(f"Benchmark executable not found at path: {BENCHMARK_EXECUTABLE}")
@@ -114,22 +112,31 @@ def run_experiment():
     # run dycuckoo dynamic resizing benchmark
     print('Running DyCuckoo Benchmark...')
     dycuckoo_root = os.path.abspath(DYCUCKOO_DIR)
-    dycuckoo_result_dir = run_dycuckoo(dycuckoo_root, 16, 24, 0.25, 0.9, 0.5)
-    # dycuckoo_result_dir = dycuckoo_root + "/results/dynamic_resize.csv"
+    dycuckoo_result_dir = run_dycuckoo(dycuckoo_root, 16, 24, 0.25, 0.9, 0.5, compute_capability=compute_capability)
+    
     dycuckoo_grow_throughputs = read_col(dycuckoo_result_dir, "grow_throughput")[:len(NUMBER_OF_OPS_POWERS)]
     dycuckoo_shrink_throughputs = read_col(dycuckoo_result_dir, "shrink_throughput")[:len(NUMBER_OF_OPS_POWERS)]
+    
+    # Fill with 0s if benchmark failed
+    if not dycuckoo_grow_throughputs: dycuckoo_grow_throughputs = [0] * len(NUMBER_OF_OPS_POWERS)
+    if not dycuckoo_shrink_throughputs: dycuckoo_shrink_throughputs = [0] * len(NUMBER_OF_OPS_POWERS)
 
     print('Running SlabHash Benchmark...')
     slabhash_root = os.path.abspath(SLABHASH_DIR)
-    # slabhash_expansion_result = os.path.join(slabhash_root, "build/bench_result/rehash_experiment.csv")
-    # slabhash_contraction_result = os.path.join(slabhash_root, "build/bench_result/merge_experiment.csv")
     
-    slabhash_expansion_result, slabhash_contraction_result = run_slabhash(slabhash_root)
-    slabhash_grow_throughputs = read_col(slabhash_expansion_result, "rehash_throughput_Mops")
-    slabhash_shrink_throughputs = read_col(slabhash_contraction_result, "merge_throughput_Mops")
+    slabhash_results = run_slabhash(slabhash_root)
+    if slabhash_results:
+        slabhash_expansion_result, slabhash_contraction_result = slabhash_results
+        slabhash_grow_throughputs = read_col(slabhash_expansion_result, "rehash_throughput_Mops")
+        slabhash_shrink_throughputs = read_col(slabhash_contraction_result, "merge_throughput_Mops")
+    else:
+        slabhash_grow_throughputs = [0] * len(NUMBER_OF_OPS_POWERS)
+        slabhash_shrink_throughputs = [0] * len(NUMBER_OF_OPS_POWERS)
+
+    if not slabhash_grow_throughputs: slabhash_grow_throughputs = [0] * len(NUMBER_OF_OPS_POWERS)
+    if not slabhash_shrink_throughputs: slabhash_shrink_throughputs = [0] * len(NUMBER_OF_OPS_POWERS)
 
     all_results = []
-    
 
     for ops_power in NUMBER_OF_OPS_POWERS:
         combined_metrics = {"num_ops_power": ops_power}
@@ -184,15 +191,15 @@ def run_experiment():
     # Plot for Time
     grow_times = [r.get("hive_hash_grow_time", 0) for r in all_results]
     shrink_times = [r.get("hive_hash_shrink_time", 0) for r in all_results]
-    colors = ['orange', 'green']
-    hatches = ['x', '.']
+    colors_time = ['orange', 'green']
+    hatches_time = ['x', '.']
     plot_grouped_bar_chart(
         x_labels=x_labels,
         y_values=[grow_times, shrink_times],
         bar_names=['Grow Time (ms)', 'Shrink Time (ms)'] ,
         fig_name="hive_hash_dynamic_resizing_time.png",
-        colors=colors,
-        hatches=hatches,
+        colors=colors_time,
+        hatches=hatches_time,
         fig_title="",
         x_label="Number of Buckets Added/Removed (Thousands)",
         y_label="Time (ms)"
@@ -202,8 +209,9 @@ def run_experiment():
     grow_throughputs = [r.get("hive_hash_grow_throughput", 0) for r in all_results]
     shrink_throughputs = [r.get("hive_hash_shrink_throughput", 0) for r in all_results]
     bar_names_=['Hive Hash Table', 'SlabHash', 'DyCuckoo']
-    colors = plt.get_cmap('Set2')(np.linspace(0, 1, len(bar_names_)))
-    hatches = ['/', '\\', 'x', '.', '*']
+    colors_tp = plt.get_cmap('Set2')(np.linspace(0, 1, len(bar_names_)))
+    hatches_tp = ['/', '\\', 'x', '.', '*']
+    
     plot_grouped_bar_chart(
         x_labels=x_labels,
         y_values=[grow_throughputs, slabhash_grow_throughputs, dycuckoo_grow_throughputs],
@@ -212,8 +220,8 @@ def run_experiment():
         fig_title="",
         x_label="Number of Buckets Added (Thousands)",
         y_label="Throughput (Mops/s)",
-        colors=colors,
-        hatches=hatches
+        colors=colors_tp,
+        hatches=hatches_tp
     )
 
     plot_grouped_bar_chart(
@@ -224,11 +232,19 @@ def run_experiment():
         fig_title="",
         x_label="Number of Buckets Merged (Thousands)",
         y_label="Throughput (Mops/s)",
-        colors=colors,
-        hatches=hatches
+        colors=colors_tp,
+        hatches=hatches_tp
     )
     
     print(f"Experiments complete. Results saved to {RESULTS_DIR}")
 
+def main():
+    parser = argparse.ArgumentParser(description="Run Dynamic Resizing Experiment")
+    parser.add_argument("--sm", type=str, default=os.environ.get("SM", None),
+                        help="Compute capability (e.g., 89, 120). Defaults to the SM environment variable.")
+    args = parser.parse_args()
+    
+    run_experiment(compute_capability=args.sm)
+
 if __name__ == "__main__":
-    run_experiment()
+    main()

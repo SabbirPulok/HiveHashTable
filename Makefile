@@ -17,7 +17,8 @@ NVTX_LIB := -lnvToolsExt
 BINARY := bin
 
 CODEDIRS = . src
-INCDIRS = . ./include /usr/local/cuda-13.0/include /usr/local/cuda-13.0/include/cccl
+CUDA_PATH ?= /usr/local/cuda
+INCDIRS = . ./include $(CUDA_PATH)/include $(CUDA_PATH)/include/cccl
 
 #Xptxas="-v" provides register usage information -Xptxas="-v" 
 #O0 and -G (device side)are for debugging
@@ -28,10 +29,12 @@ ifeq ($(GPU_PLATFORM), AMD)
 	GPUCC = hipcc
 	GPUFLAGS = --amdgpu-target=gfx129
 else ifeq ($(GPU_PLATFORM), NVIDIA)
-	GPUCC = nvcc
-	ARCH=$(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n1)
-	SM=$(subst .,,$(ARCH))
-	GPUFLAGS = -std=c++17 --compiler-options -Werror -arch=sm_$(SM)
+	GPUCC = $(CUDA_PATH)/bin/nvcc
+ifndef SM
+	ARCH=$(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n1 | tr -d ".")
+	SM=$(if $(ARCH),$(ARCH),89)
+endif
+	GPUFLAGS = -std=c++17 --compiler-options "" -arch=sm_$(SM) -gencode arch=compute_$(SM),code=sm_$(SM)
 # 	using lambdas in device code
 	GPUFLAGS += --extended-lambda 
 else
@@ -89,7 +92,7 @@ OUT_LOOKUP_ONLY_WORKLOAD=$(BINARY)/hive_hash_table_lookup_only_workload
 
 .PHONY: all clean run diff profile benchmark ycsb
 
-all: $(OUT_BENCH) $(OUT_YCSB)
+all: $(OUT_BENCH) $(OUT_YCSB) $(OUT_LOOKUP_ONLY_WORKLOAD)
 
 benchmark: $(OUT_BENCH)
 ycsb: $(OUT_YCSB)
@@ -106,23 +109,23 @@ $(BINARY):
 
 # Main Benchmark Target
 $(OUT_BENCH): $(OBJECTS) benchmark/hive_table_benchmark.o | $(BINARY)
-	$(GPUCC) -o $@ $(OBJECTS) benchmark/hive_table_benchmark.o
+	$(GPUCC) $(GPUFLAGS) -o $@ $(OBJECTS) benchmark/hive_table_benchmark.o -lcudart
 
 # YCSB Target
 $(OUT_YCSB): $(OBJECTS) benchmark/ycsb_benchmark.o | $(BINARY)
-	$(GPUCC) -o $@ $(OBJECTS) benchmark/ycsb_benchmark.o
+	$(GPUCC) $(GPUFLAGS) -o $@ $(OBJECTS) benchmark/ycsb_benchmark.o -lcudart
 
 $(OUT_LOOKUP_ONLY_WORKLOAD): $(OBJECTS) benchmark/hive_lookup_only_benchmark.o | $(BINARY)
-	$(GPUCC) -o $@ $(OBJECTS) benchmark/hive_lookup_only_benchmark.o
+	$(GPUCC) $(GPUFLAGS) -o $@ $(OBJECTS) benchmark/hive_lookup_only_benchmark.o -lcudart
 
 %.o:%.cu
 	$(GPUCC) $(GPUCCFLAGS) -c $< -o $@
 
 %.o:%.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(GPUCC) $(GPUCCFLAGS) -c $< -o $@
 
 %.o:%.cc
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(GPUCC) $(GPUCCFLAGS) -c $< -o $@
 
 %.o:%.hip.cpp
 	$(GPUCC) $(GPUCCFLAGS) -c $< -o $@

@@ -74,7 +74,7 @@ void launch_linear_probing_lookup_kernel(
     double &elapsed_time
 ){
     std::cout<<"Launching Linear Probing Lookup Kernel..."<<std::endl;
-    CoarseGraindGPUTimer gpuTimerCoarse;
+    CoarseGrainedGPUTimer gpuTimerCoarse;
 
     //Allocate device memory
     HashEntry* d_table;

@@ -6,6 +6,7 @@
 
 #include <cuda/std/cstdint>
 #include <cuda_helper.cuh> 
+
 #include "utils.h"
 
 #ifdef DEBUG
@@ -28,6 +29,11 @@
 
 #define STASH_ENABLED 1
 
+using key_type = uint32_t;
+
+using value_type = uint32_t;
+using kv_type = uint64_t;
+
 
 static const std::pair<size_t, size_t> max_bucket_and_stash_caps = []() {
     size_t free_byte;
@@ -37,8 +43,8 @@ static const std::pair<size_t, size_t> max_bucket_and_stash_caps = []() {
     std::cout << "GPU Free Memory: " << free_byte / (1024.0 * 1024.0 * 1024.0) << " GB" << std::endl;
     std::cout << "GPU Total Memory: " << total_byte / (1024.0 * 1024.0 * 1024.0) << " GB" <<  std::endl;
 
-    //10% for stash
-    return std::make_pair((free_byte * 0.30), (free_byte * 0.05)); //KV pairs 8 bytes
+    // stash will be in pinned memory (host and gpu visible) Managed Memory
+    return std::make_pair((free_byte * 0.30), (free_byte * 0.30)); //KV pairs 8 bytes
 }();
 
 struct __align__(16) ULong2{
@@ -46,17 +52,10 @@ struct __align__(16) ULong2{
     uint64_t y;
 };
 
-#ifdef __CUDACC__
-__device__ __constant__ uint32_t SENTINEL = 0ull;
-__device__ __constant__ uint64_t EMPTY_KV = 0ull;
-#else
-static const uint32_t SENTINEL = 0;
-static const uint64_t EMPTY_KV = 0;
-#endif
 
 template <typename KVType, size_t SLOT>
 struct __align__(128) HiveBucketBody{
-    KVType kv[SLOT]; //key-value pairs
+    alignas(sizeof(KVType)) KVType kv[SLOT]; //key-value pairs
 };
 
 //Device Table state (SoA metadata: tiny atomics)
@@ -64,7 +63,7 @@ struct HiveHashTable{
     static constexpr size_t SLOTS = HIVE_BUCKET_SLOTS;
     // Array of buckets, each 256 bytes wide, storing 32 packed key-value pairs
     // Each warp can load the entire 256 byte bucket in one coalesced memory transaction, matching the GPU cache line (two 128B L1 cacheline)
-    HiveBucketBody<uint64_t, SLOTS>* buckets; //[num_buckets]
+    HiveBucketBody<kv_type, SLOTS>* buckets; //[num_buckets]
 
     // One 32-bit word per bucket, each bit corresponding to a slot in the bucket
     // Instead of scanning the entire bucket to find a free slot, we can just look at this bitmask
@@ -74,7 +73,7 @@ struct HiveHashTable{
     // A short-lived per-bucket lock
     // Sometimes both candidate buckets are full, but you might need to evict a victim slot (cuckoo step)
     // Only rare eviction slow-path touches it
-    uint16_t* lock; //lock for the bucket
+    uint32_t* lock; //lock for the bucket
 
     //Number of buckets in the table
     size_t num_buckets;
@@ -95,21 +94,30 @@ struct HiveHashTable{
     __device__ __forceinline__ uint32_t* getFreeMask(size_t bucket_idx) const{
         return &freeMask[bucket_idx];
     }
-    __device__ __forceinline__ uint16_t* getLock(size_t bucket_idx) const{
+    __device__ __forceinline__ uint32_t* getLock(size_t bucket_idx) const{
         return &lock[bucket_idx];
     }
 
     __device__ __forceinline__ void lockBucket(size_t bucket_idx) const{
-        // Use an atomic_ref on the 16-bit lock word in device scope
-        auto atomic_lock = cuda::atomic_ref<uint16_t, cuda::thread_scope_device>(lock[bucket_idx]);
+        // Use an atomic_ref on the 32-bit lock word in device scope
+        auto atomic_lock = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(lock[bucket_idx]);
 
+        unsigned backoff = 1u;
         while(atomic_lock.exchange(1u, cuda::memory_order_acquire) != 0u) {
-            // busy-wait
+            // busy-wait with exponential backoff to reduce thundering herd
+#if defined(__CUDA_ARCH__)
+            for (unsigned i = 0; i < backoff; ++i) {
+                __nanosleep(1);
+            }
+#else
+            for (volatile unsigned i = 0; i < backoff; ++i) {}
+#endif
+            backoff = (backoff < 1024u) ? (backoff << 1) : 1024u;
         }
     }
 
     __device__ __forceinline__ void unlockBucket(size_t bucket_idx) const{
-        auto atomic_lock = cuda::atomic_ref<uint16_t, cuda::thread_scope_device>(lock[bucket_idx]);
+        auto atomic_lock = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(lock[bucket_idx]);
         atomic_lock.store(0u, cuda::memory_order_release);
     }
 
@@ -128,7 +136,7 @@ struct __align__(128) HiveBucketAoaS{
 
     struct Header{
         uint32_t freeMask; // 4 bytes
-        uint16_t lock;      // 2 bytes
+        uint32_t lock;      // 2 bytes
     } header;
 
 };
@@ -157,7 +165,7 @@ struct HiveHashTableAoaS{
 
     __device__ __forceinline__ void lockBucket(size_t bucket_idx) const{
         // Use an atomic_ref on the 16-bit lock word in device scope
-        auto atomic_lock = cuda::atomic_ref<uint16_t, cuda::thread_scope_device>(buckets[bucket_idx].header.lock);
+        auto atomic_lock = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(buckets[bucket_idx].header.lock);
 
         unsigned backoff = 1u;
 
@@ -176,12 +184,12 @@ struct HiveHashTableAoaS{
         }
     }
 
-    __device__ __forceinline__ uint16_t* getLock(size_t bucket_idx) const{
+    __device__ __forceinline__ uint32_t* getLock(size_t bucket_idx) const{
         return &buckets[bucket_idx].header.lock;
     }
 
     __device__ __forceinline__ void unlockBucket(size_t bucket_idx) const{
-        auto atomic_lock = cuda::atomic_ref<uint16_t, cuda::thread_scope_device>(buckets[bucket_idx].header.lock);
+        auto atomic_lock = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(buckets[bucket_idx].header.lock);
         atomic_lock.store(0u, cuda::memory_order_release);
     }
 
@@ -199,7 +207,7 @@ struct __align__(128) HiveBucketAoaS_LeadMetaData{
 
     struct Header{
         uint32_t freeMask; // 4 bytes
-        uint16_t lock;      // 2 bytes
+        uint32_t lock;      // 2 bytes
     } header;
 
 };
@@ -226,13 +234,13 @@ struct HiveHashTableAoaS_LeadMetaData{
         return &buckets[bucket_idx].header.freeMask;
     }
 
-    __device__ __forceinline__ uint16_t* getLock(size_t bucket_idx) const{
+    __device__ __forceinline__ uint32_t* getLock(size_t bucket_idx) const{
         return &buckets[bucket_idx].header.lock;
     }
 
     __device__ __forceinline__ void lockBucket(size_t bucket_idx) const{
         // Use an atomic_ref on the 16-bit lock word in device scope
-        auto atomic_lock = cuda::atomic_ref<uint16_t, cuda::thread_scope_device>(buckets[bucket_idx].header.lock);
+        auto atomic_lock = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(buckets[bucket_idx].header.lock);
 
         unsigned backoff = 1u;
 
@@ -252,7 +260,7 @@ struct HiveHashTableAoaS_LeadMetaData{
     }
 
     __device__ __forceinline__ void unlockBucket(size_t bucket_idx) const{
-        auto atomic_lock = cuda::atomic_ref<uint16_t, cuda::thread_scope_device>(buckets[bucket_idx].header.lock);
+        auto atomic_lock = cuda::atomic_ref<uint32_t, cuda::thread_scope_device>(buckets[bucket_idx].header.lock);
         atomic_lock.store(0u, cuda::memory_order_release);
     }
 
@@ -262,63 +270,6 @@ struct HiveHashTableAoaS_LeadMetaData{
 #endif
 };
 
-
-
-//Overflow Stash (GPU Ring Buffer)
-template<typename KeyType, typename ValueType>
-struct HiveOverflowStash {
-    using max_cap_type = uint64_t;
-    
-    KeyType* keys;
-    ValueType* values;
-    
-    cuda::atomic<KeyType> head;  // Index of the oldest filled slot (atomic for thread-safety)
-    cuda::atomic<KeyType> tail;  // Index of the next free slot (atomic for thread-safety)
-    max_cap_type capacity;        // Total capacity of the stash
-    
-    bool enabled;                 // Enable/disable stash
-    
-    __host__ __device__ HiveOverflowStash() 
-        : keys(nullptr), values(nullptr), head(0), tail(0), capacity(0), enabled(true) {}
-    
-    __host__ __device__ HiveOverflowStash& operator=(const HiveOverflowStash& other) {
-        if (this != &other) {
-            keys = other.keys;
-            values = other.values;
-            head.store(other.head.load(cuda::memory_order_relaxed), cuda::memory_order_relaxed);
-            tail.store(other.tail.load(cuda::memory_order_relaxed), cuda::memory_order_relaxed);
-            capacity = other.capacity;
-            enabled = other.enabled;
-        }
-        return *this;
-    }
-    
-    __host__ __device__ HiveOverflowStash(const HiveOverflowStash& other)
-        : keys(other.keys), values(other.values), 
-          head(other.head.load(cuda::memory_order_relaxed)),
-          tail(other.tail.load(cuda::memory_order_relaxed)),
-          capacity(other.capacity), enabled(other.enabled) {}
-    
-    HiveOverflowStash(HiveOverflowStash&&) = delete;
-    HiveOverflowStash& operator=(HiveOverflowStash&&) = delete;
-    
-    // Check if stash is full
-#ifdef __CUDACC__
-    __device__ __forceinline__ bool isFull() const {
-        return (tail.load(cuda::memory_order_acquire) - head.load(cuda::memory_order_acquire)) >= capacity;
-    }
-    
-    // Check if stash is empty
-    __device__ __forceinline__ bool isEmpty() const {
-        return tail.load(cuda::memory_order_acquire) == head.load(cuda::memory_order_acquire);
-    }
-    
-    // Helper: Get current size
-    __device__ __forceinline__ uint64_t size() const {
-        return tail.load(cuda::memory_order_acquire) - head.load(cuda::memory_order_acquire);
-    }
-#endif
-};
 
 struct InsertBreakdown {
     double stageA;

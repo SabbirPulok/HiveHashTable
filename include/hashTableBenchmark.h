@@ -122,3 +122,15 @@ class HashTableBenchmark {
             HashTableBenchmarkResult &result
         );
 };
+
+// Warpspeed Benchmark Wrapper
+void run_warpspeed_mixed_workload(
+    Operation* h_ops,
+    size_t num_ops,
+    size_t table_size,
+    size_t threads_per_block,
+    size_t numIterations,
+    double &elapsed_time,
+    uint64_t* h_results,
+    bool verify
+);

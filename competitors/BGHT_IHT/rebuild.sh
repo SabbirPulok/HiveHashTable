@@ -1,9 +1,14 @@
 #!/bin/bash
 
-cuda_arch="89" #specify your GPU SM/gencode
+# Use SM environment variable if provided, else default to 89
+cuda_arch="${SM:-89}"
 build_dir="build"
 targets=("all")
 
-# Explicitly set the CUDA compiler to version 13.0
-cmake -B $build_dir -DCMAKE_CUDA_ARCHITECTURES=${cuda_arch} -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc
+# Use CUDA_PATH environment variable if provided, else default to /usr/local/cuda
+cuda_bin="${CUDA_PATH:-/usr/local/cuda}/bin/nvcc"
+
+echo "Rebuilding BGHT_IHT with SM=${cuda_arch} and NVCC=${cuda_bin}"
+
+cmake -B $build_dir -DCMAKE_CUDA_ARCHITECTURES=${cuda_arch} -DCMAKE_CUDA_COMPILER=${cuda_bin}
 cmake --build $build_dir --target "${targets[@]}" --parallel $(nproc)

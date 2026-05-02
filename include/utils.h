@@ -23,7 +23,8 @@ struct Operation{
 enum class HashTableDataLayout {
     HYBRID_SOA_AOS,
     ARRAY_OF_ALIGNED_STRUCTS,
-    ARRAY_OF_ALIGNED_STRUCTS_LEAD_METADATA
+    ARRAY_OF_ALIGNED_STRUCTS_LEAD_METADATA,
+    WARPSPEED
 };
 
 enum class YCSBWorkLoadType{
@@ -34,6 +35,16 @@ enum class YCSBWorkLoadType{
     WORKLOAD_F, // 50% read, 50% read-modify-write
     NONE
 };
+
+#ifdef __CUDACC__
+__device__ __constant__ uint32_t SENTINEL = 0ull;
+__device__ __constant__ uint64_t EMPTY_KV = 0ull;
+__device__ __constant__ uint64_t LOCKED_KV = 0xFFFFFFFFFFFFFFFFull;
+#else
+static const uint32_t SENTINEL = 0;
+static const uint64_t EMPTY_KV = 0;
+static const uint64_t LOCKED_KV = 0xFFFFFFFFFFFFFFFFull;
+#endif
 
 std::string inline pretty_print_number(size_t n) noexcept
 {
@@ -68,20 +79,38 @@ __device__ __forceinline__ T load_cg_safe(const T* ptr)
     return __ldcg(ptr);
 }
 
+// If no cache modifier is specified, default is .ca (Cache All). 
+// On GPUs L1 cache is not hardware-coherent across SMs.
+// Use BYPASS_L1 = true for concurrent mixed workloads to ensure visibility.
+// Use BYPASS_L1 = false for lookup-only or static workloads to maximize L1 hit rate.
+// "ld.global.acquire.gpu.v2.u64 {%0, %1}, [%2];\n"
+template<bool BYPASS_L1 = true>
 __device__ __forceinline__ ulonglong2 load_two_kvs(ulonglong2* bucket, unsigned lane)
 {
     ulonglong2 v;
-    
-    asm volatile (
-        "ld.global.v2.u64 {%0, %1}, [%2];\n"
-        : "=l"(v.x), "=l"(v.y)
-        : "l"(&bucket[lane])
-        : "memory"
-    );
+
+    if (BYPASS_L1) {
+        asm volatile (
+            "ld.global.acquire.gpu.v2.u64 {%0, %1}, [%2];\n"
+            : "=l"(v.x), "=l"(v.y)
+            : "l"(&bucket[lane])
+            : "memory"
+        );
+    } else {
+        asm volatile (
+            "ld.global.ca.v2.u64 {%0, %1}, [%2];\n"
+            : "=l"(v.x), "=l"(v.y)
+            : "l"(&bucket[lane])
+            : "memory"
+        );
+    }
     return v;
 }
+
+// Cache Global - load.global.cg = reads from L2 bypassing L1 cache but does not invalidates cached L1 lines
+// Volatile - load.global.cv =  invalidates L2 entry and strictly inhibits compiler optimizations for all access
+// ld.global.acquire.gpu.v2.u64 = Prevents L2 stale reads and Orders value loads (ensure cummulative visibility))
 
 #endif
 
 void vectorAdd(const float* A, const float* B, float* C, int N);
-
