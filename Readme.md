@@ -1,5 +1,5 @@
 # Artifact Evaluation Guide
-This repository contains the implementation and benchmarking suite for **Hive Hash Table**, a high-performance, concurrent, and dynamically resizable hash table designed for modern GPU architectures.
+This repository contains the implementation and benchmarking suite for **Hive Hash Table**, a high-performance, concurrent, and dynamically resizable hash table designed for modern GPU architectures (H100 NVL, RTX 5090, RTX 4090, RTX 3080, RTX 2080 Ti).
 
 ---
 
@@ -114,15 +114,7 @@ python3 scripts/ycsb_workload_experiment.py
 ```
 *Expected Output: `results/ycsb_workload_*.png`*
 
-### Experiment 5: The Skewed RMW Contention Cliff
-Demonstrates the throughput collapse of coarse-grained locking tables (like SlabHash) when subjected to Read-Modify-Write workloads on highly skewed data distributions.
-
-```bash
-python3 scripts/slabhash_skewed_rmw.py
-```
-*Expected Output: `results/skewed_rmw_contention_cliff.png`*
-
-### Experiment 6: Hash Policy / Probe Experiment
+### Experiment 5: Hash Policy / Probe Experiment
 Evaluates the performance impact of using different internal Hash Policies (e.g., Default2Hash vs MurmurCityHash).
 
 ```bash
@@ -130,16 +122,7 @@ python3 scripts/probing_experiment.py
 ```
 *Expected Output: `results/hash_function_comparison_*.png`*
 
-### Experiment 7: Dynamic Resizing (Requires Recompilation)
-To test the tile-parallel linear hashing resize algorithm, you must explicitly compile the table with bounds-checking enabled. 
-
-```bash
-make clean && CUDA_PATH=/usr/local/cuda SM=90 make DYNAMIC_RESIZE=1 all
-python3 scripts/dynamic_resizing_experiment.py
-```
-*Expected Output: `results/dynamic_resize_*.png`, `results/hive_hash_dynamic_resizing_time.png`*
-
-### Experiment 8: Insertion Time Breakdown (Requires Recompilation)
+### Experiment 6: Insertion Time Breakdown (Requires Recompilation)
 To see a detailed latency breakdown of the 4-stage insertion protocol (Try Replace -> Claim & Commit -> Cuckoo Eviction -> Overflow Stash).
 
 ```bash
@@ -152,4 +135,4 @@ python3 scripts/insertion_breakdown_experiment.py
 
 ## 5. Viewing the Results
 
-All of the generated plots and CSV files will be instantly available inside the `results/` folder. If you are using RunPod's Jupyter Lab or Jupyter Notebook interface, you can simply navigate to the `results/` directory in the file browser and double-click the `.png` files to view the charts natively.
+All of the generated plots and CSV files will be instantly available inside the `results/` folder. 
