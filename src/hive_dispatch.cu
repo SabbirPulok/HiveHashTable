@@ -11,7 +11,6 @@
 
 #include "hive_hash_insert.cuh"
 #include "hive_hash_lookup.cuh"
-#include "hive_hash_atomicInc.cuh"
 #include "hive_hash_delete.cuh"
 #include "hive_hash_resize.cuh"
 #include "HashPolicies.cuh"
@@ -177,7 +176,7 @@ void run_hash_table_benchmark(
         
         double lf = static_cast<double>(h_total_occupied) / (static_cast<double>(hash_table_host_mirror.num_buckets) * static_cast<double>(TableType::SLOTS));
 
-        std::cout << "Iteration " << iter << " Load Factor: " << lf * 100.0 << "%" << std::endl;
+        std::cout << "Iteration " << iter << std::endl;
 
         #if DYNAMIC_RESIZE
         std::cout << "Dynamic Resizing Check: " << lf<< std::endl;
@@ -238,7 +237,6 @@ void run_hash_table_benchmark(
     size_t successful_inserts = 0;
     size_t successful_lookups = 0;
     size_t successful_deletes = 0;
-    size_t successful_atomic_incs = 0;
 
     if (verify)
     {
@@ -259,16 +257,11 @@ void run_hash_table_benchmark(
             size_t idx = &op - h_ops;
             return op.type == OperationType::DELETE && h_results[idx] != 0;
         });
-        successful_atomic_incs = std::count_if(h_ops, h_ops + num_ops, [h_ops, h_results](const Operation& op) {
-            size_t idx = &op - h_ops;
-            return op.type == OperationType::ATOMIC_INC && h_results[idx] != 0;
-        });
 
         std::cout << "Unsuccessful ops: " << unsuccessful_ops << " out of " << num_ops <<", Success Rate: " << (1.0 - (unsuccessful_ops / static_cast<float>(num_ops))) * 100 << "%" << std::endl;
         std::cout << "Successful Inserts: " << successful_inserts << std::endl;
         std::cout << "Successful Lookups: " << successful_lookups << std::endl;
         std::cout << "Successful Deletes: " << successful_deletes << std::endl;
-        std::cout << "Successful Atomic Increments: " << successful_atomic_incs << std::endl;
 
     }
 

@@ -2,7 +2,6 @@
 #include "hive_hash_table.cuh"
 #include "hive_hash_insert.cuh"
 #include "hive_hash_lookup.cuh"
-#include "hive_hash_atomicInc.cuh"
 #include "hive_hash_delete.cuh"
 #include "hive_hash_resize.cuh"
 #include "HashPolicies.cuh"
